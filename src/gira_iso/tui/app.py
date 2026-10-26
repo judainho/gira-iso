@@ -17,7 +17,8 @@ from gira_iso.nl.client import (
 from gira_iso.tui.bases import list_bases, upload_base
 from gira_iso.tui.create import create_image
 from gira_iso.tui.images import list_images
-from gira_iso.tui.views import MENU, banner, show_menu
+from gira_iso.tui.views import MENU, banner, show_environment, show_menu
+from gira_iso.workflow.preflight import check_environment
 
 MAX_KEY_ATTEMPTS = 3
 
@@ -58,6 +59,7 @@ def run(console: Console | None = None) -> None:
     config = ask_api_key(console)
     if config is None:
         return
+    show_environment(console, check_environment())
     actions = {
         "1": lambda: list_images(console),
         "2": lambda: upload_base(console),

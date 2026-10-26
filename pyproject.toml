@@ -37,6 +37,7 @@ gira-iso = "gira_iso.cli:app"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = ["real_preflight: run the real environment checks instead of the test stub"]
 
 [tool.ruff]
 line-length = 100

@@ -2,6 +2,7 @@
 
 The order is fixed here and nowhere else:
 
+    0. preflight  (tools, KVM and disk: fail before spending tokens, downloads or minutes)
     1. interpret  (only for natural language; the policy is applied inside the conversation
                    so the model can correct itself)
     2. explain    (check the model's claims against the spec and the policy)
@@ -22,6 +23,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+from gira_iso.bases import builds_dir
 from gira_iso.builder.build import BuildRejected, BuildResult, build_image
 from gira_iso.builder.catalog import load_manifest
 from gira_iso.builder.export import ExportError, export_image
@@ -33,6 +35,7 @@ from gira_iso.spec.models import BaseImage, Spec
 from gira_iso.verify.verify import VerifyResult, verify_build
 from gira_iso.workflow.events import Built, Download, LogLine, Step, Verified
 from gira_iso.workflow.ports import Decision, Io, Review
+from gira_iso.workflow.preflight import ensure_environment, ensure_space
 
 
 class Status(Enum):
@@ -58,6 +61,7 @@ class CreateRequest:
     work_root: Path | None = None
     allowlist: Allowlist | None = None
     review: bool = True  # False skips Io.review, as a spec file always did on the command line
+    preflight: bool = True  # check tools, KVM and disk before spending anything
 
     def __post_init__(self) -> None:
         if (self.text is None) == (self.spec is None):
@@ -95,6 +99,10 @@ def _violation_lines(verdict: Verdict) -> tuple[str, ...]:
 
 
 def run_create(request: CreateRequest, io: Io) -> CreateOutcome:
+    # 0. preflight: the machine can build, before the model or the network is touched
+    if request.preflight:
+        ensure_environment()
+
     allowlist = request.allowlist or load_allowlist()
     explanation = Explanation()
     usage: dict[str, int] = {}
@@ -165,6 +173,8 @@ def run_create(request: CreateRequest, io: Io) -> CreateOutcome:
         name, verify = decision.name or name, decision.verify
 
     # 5. build
+    if request.preflight:
+        ensure_space(request.work_root or builds_dir(), int(spec.disk_size.removesuffix("G")))
     try:
         build = build_image(
             spec,

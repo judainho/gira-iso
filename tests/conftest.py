@@ -97,3 +97,13 @@ def make_build():
         return BuildResult(build_dir=build_dir, image=image, manifest=build_dir / "manifest.json")
 
     return factory
+
+
+@pytest.fixture(autouse=True)
+def _no_real_preflight(monkeypatch, request):
+    """The suite must pass on a machine without QEMU or KVM; preflight tests opt out."""
+    if request.node.get_closest_marker("real_preflight"):
+        return
+    monkeypatch.setattr("gira_iso.workflow.create.ensure_environment", lambda: None)
+    monkeypatch.setattr("gira_iso.workflow.create.ensure_space", lambda root, gb: None)
+    monkeypatch.setattr("gira_iso.tui.app.check_environment", lambda: [])

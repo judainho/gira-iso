@@ -488,3 +488,14 @@ un cierre brusco no lo deja trabado. `gira-iso clean` toma el mismo candado: un 
 incompleto y no debe borrarse. Si el directorio ya existe (mismo spec en el mismo segundo) se añade
 `-2`, `-3` en lugar de fallar. 8 tests nuevos.
 
+**2026-10-26 — Flujo de control, P3 / C4: preflight.** `workflow/preflight.py` comprueba, antes de
+tocar el modelo, la red o el disco, que existan `qemu-system-x86_64`, `qemu-img`, `cloud-localds`,
+`ssh-keygen`, `packer` y `goss`, que `/dev/kvm` sea legible y escribible (nombra el grupo real del
+dispositivo) y, con el tamaño ya conocido del spec, que haya espacio libre (`disk_size` + 2 GB). Cada
+problema trae el comando exacto que lo arregla (`apt-get install` solo de lo que falta;
+`./install.sh` para packer y goss; `usermod -aG <grupo>`). Todos se juntan en un solo
+`EnvironmentProblem` (código 3). El menú muestra "Entorno listo" o el panel de problemas al abrir y
+sigue siendo utilizable. Los tests desactivan el preflight real con una fixture automática, para que
+la suite pase en una máquina sin QEMU; 20 tests lo prueban por separado. Primera comprobación real: en
+la máquina de desarrollo detecta justo el permiso de `/dev/kvm` que faltaba.
+
