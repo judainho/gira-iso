@@ -1,4 +1,4 @@
-"""Commands over images that already exist: list, download, show, delete."""
+"""Commands over images that already exist: list, download, show, delete, clean."""
 
 from __future__ import annotations
 
@@ -8,8 +8,14 @@ from pathlib import Path
 import typer
 
 from gira_iso.bases import builds_dir
-from gira_iso.builder.catalog import display_name, resolve_image, scan_builds
-from gira_iso.builder.export import delete_build, describe, export_image
+from gira_iso.builder.catalog import (
+    directory_size,
+    display_name,
+    find_incomplete,
+    resolve_image,
+    scan_builds,
+)
+from gira_iso.builder.export import delete_build, describe, export_image, remove_incomplete
 from gira_iso.cli._app import WORK_ROOT_HELP, app
 from gira_iso.cli._shared import guarded
 from gira_iso.errors import (
@@ -126,3 +132,29 @@ def delete(
         raise typer.Exit(EXIT_OK)
     removed = delete_build(manifest_path, root)
     typer.echo(f"  deleted   {removed}")
+
+
+@app.command()
+@guarded
+def clean(
+    work_root: Path = typer.Option(None, "--work-root", help=WORK_ROOT_HELP),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask for confirmation"),
+) -> None:
+    """Delete builds that never finished: failed, cancelled or killed."""
+    root = work_root or builds_dir()
+    incomplete = find_incomplete(root)
+    if not incomplete:
+        typer.echo("nothing to clean")
+        return
+    total = 0
+    for directory in incomplete:
+        size = directory_size(directory)
+        total += size
+        typer.echo(f"  {directory.name}  {size / 1024**2:.0f} MB")
+    if not yes and not typer.confirm(
+        f"delete {len(incomplete)} incomplete build(s) ({total / 1024**2:.0f} MB)?"
+    ):
+        raise typer.Exit(EXIT_OK)
+    removed = remove_incomplete(root)
+    freed = sum(size for _, size in removed)
+    typer.echo(f"  removed   {len(removed)} build(s), {freed / 1024**2:.0f} MB freed")

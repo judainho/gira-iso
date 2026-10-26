@@ -12,13 +12,14 @@ from rich.text import Text
 
 from gira_iso import settings
 from gira_iso.bases import builds_dir
-from gira_iso.builder.catalog import scan_builds
+from gira_iso.builder.catalog import directory_size, find_incomplete, scan_builds
 from gira_iso.builder.export import (
     ExportError,
     ExportExists,
     delete_build,
     describe,
     export_image,
+    remove_incomplete,
 )
 from gira_iso.builder.manifest import Manifest
 from gira_iso.naming import is_valid_image_name
@@ -28,9 +29,12 @@ from gira_iso.tui.common import ACCENT, default_downloads, section
 def list_images(console: Console) -> None:
     section(console, "Imágenes existentes")
     builds = scan_builds(builds_dir())
-    if not builds:
+    incomplete = find_incomplete(builds_dir())
+    if not builds and not incomplete:
         console.print(f"[yellow]Todavía no hay imágenes[/] en {builds_dir()}")
         return
+    if not builds:
+        console.print(f"[yellow]Todavía no hay imágenes[/] en {builds_dir()}")
     table = Table(border_style="dim", header_style=f"bold {ACCENT}")
     for column in ("#", "Nombre", "Creada (UTC)", "Disco", "Base", "Build"):
         table.add_column(column)
@@ -44,16 +48,32 @@ def list_images(console: Console) -> None:
             f"{manifest.base.os} {manifest.base.version}",
             build_dir.name,
         )
-    console.print(table)
+    if builds:
+        console.print(table)
     console.print(f"[dim]Ubicación: {builds_dir()}[/]")
 
+    hint = ""
+    if incomplete:
+        total = sum(directory_size(directory) for directory in incomplete)
+        console.print(
+            f"[yellow]Hay {len(incomplete)} build(s) incompleto(s) "
+            f"({total / 1024**2:.0f} MB).[/] Escribe [bold]limpiar[/] para borrarlos."
+        )
+        hint = " o limpiar"
     choice = Prompt.ask(
-        "Número de imagen para ver, exportar o eliminar (Enter para volver)",
+        f"Número de imagen para ver, exportar o eliminar{hint} (Enter para volver)",
         default="",
         show_default=False,
         console=console,
     ).strip()
     if not choice:
+        return
+    if choice == "limpiar" and incomplete:
+        removed = remove_incomplete(builds_dir())
+        freed = sum(size for _, size in removed)
+        console.print(
+            f"[green]✔ Borrados {len(removed)} build(s); {freed / 1024**2:.0f} MB libres[/]"
+        )
         return
     if not (choice.isdigit() and 1 <= int(choice) <= len(builds)):
         console.print("[yellow]Número fuera de rango.[/]")

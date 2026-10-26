@@ -474,3 +474,10 @@ ejecuta el script contra un sistema simulado (éxito y cuatro modos de fallo). *
 build real:** esta máquina no tiene QEMU. Hay que ejecutar `gira-iso create examples/nginx-web.yaml
 --name web --verify` y comprobar que aparece el check de usuario ausente.
 
+**2026-10-26 — Flujo de control, P3 / C2: nada sensible sobrevive a un build fallido.** `build_image`
+borra la clave SSH del build en un `finally` (éxito, fallo o `Ctrl+C`) y, si el build no termina,
+escribe un archivo `FAILED` con la causa. `catalog.find_incomplete` reconoce los directorios que la
+herramienta creó y no llegaron a tener manifest (marcador o subdirectorios propios); nunca toca
+carpetas ajenas ni sigue enlaces simbólicos. Nuevo comando `gira-iso clean` (pide confirmación; `--yes`
+la omite) y, en la pantalla de imágenes del menú, la opción `limpiar`. 15 tests nuevos.
+

@@ -340,8 +340,8 @@ anticipa esos fallos llega en P3 (C4).
 | Base oficial descargada | primer uso o desde el menú | `~/.cache/gira-iso/images/` | nunca (hay que borrarla a mano) |
 | Descarga parcial `*.part` | durante la descarga | junto a la base | se renombra al verificar; **queda huérfana si se interrumpe** |
 | Base subida por el usuario | opción 2 | `~/.local/share/gira-iso/bases/` | nunca |
-| Directorio de build | `build_image` | `~/.local/share/gira-iso/builds/<fecha>-<hash>/` | con `delete`; **un build fallido queda** |
-| Clave SSH del build `id_ed25519` | `build_image` | dentro del directorio de build | **nunca** (ver H7 y H8) |
+| Directorio de build | `build_image` | `~/.local/share/gira-iso/builds/<fecha>-<hash>/` | con `delete`; uno fallido queda marcado con `FAILED` y se borra con `clean` |
+| Clave SSH del build `id_ed25519` | `build_image` | dentro del directorio de build | **siempre, al terminar el build** (éxito, fallo o `Ctrl+C`; control C2) |
 | Plugin de Packer | `packer init` | `~/.packer.d/` | nunca |
 | Imagen y manifest | build correcto | `builds/<id>/image/` y `manifest.json` | con `delete` |
 | Copia exportada | menú o `download` | carpeta elegida | a mano |
@@ -381,7 +381,7 @@ Verificados leyendo el código; H7 requiere confirmarse con un build real.
 | H5 | `cli.py` (629) y `tui.py` (678) mezclan argumentos, presentación, flujo y comandos avanzados | media | **resuelto en P2**: paquetes `cli/` y `tui/` (ningún módulo pasa de 250 líneas) |
 | H6 | Lectura de manifests triplicada (`cli._load_manifest`, `verify.load_manifest`, `export.scan_builds`) | baja | **resuelto en P1**: `builder/catalog.py` |
 | H7 | El usuario de build `packer` (sudo NOPASSWD + clave pública del build) se crea por cloud-init y la limpieza no lo elimina; la clave privada queda en el directorio de build. Si se confirma, **toda imagen producida acepta esa clave** | **alta (seguridad)** | **control C1 implementado en P3**: `finalize.sh` elimina el usuario, verifica y recién apaga; goss lo comprueba. *Pendiente confirmar con un build real* |
-| H8 | Un build fallido o cancelado deja el directorio con la clave privada; no hay forma de limpiar huérfanos | alta | pendiente (P3, C2) |
+| H8 | Un build fallido o cancelado deja el directorio con la clave privada; no hay forma de limpiar huérfanos | alta | **control C2 implementado en P3**: la clave se borra en `finally`; los fallidos llevan `FAILED`; `gira-iso clean` y la opción del menú |
 | H9 | Sin candado: dos builds iguales en el mismo segundo chocan con `RuntimeError` | baja | pendiente (P3, C3) |
 | H10 | Sin preflight: QEMU, KVM o espacio faltantes se descubren dentro de Packer | alta (experiencia) | pendiente (P3, C4) |
 | H11 | Sin timeout global del build; una descarga interrumpida deja un `.part` | media | pendiente (P3, C5 y C6) |

@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from gira_iso.builder.catalog import directory_size, find_incomplete
 from gira_iso.builder.manifest import MANIFEST_NAME, Manifest, file_sha256
 from gira_iso.errors import EXIT_INVALID, EXIT_REJECTED, GiraError
 
@@ -62,6 +63,16 @@ def delete_build(manifest_path: Path, work_root: Path) -> Path:
     resolved = build_dir.resolve()
     shutil.rmtree(resolved)
     return resolved
+
+
+def remove_incomplete(work_root: Path) -> list[tuple[Path, int]]:
+    """Delete every incomplete build under `work_root`; returns (directory, bytes freed)."""
+    removed = []
+    for directory in find_incomplete(work_root):
+        size = directory_size(directory)
+        shutil.rmtree(directory)
+        removed.append((directory, size))
+    return removed
 
 
 def describe(manifest: Manifest, build_dir: Path) -> list[tuple[str, str]]:

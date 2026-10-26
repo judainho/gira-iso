@@ -6,6 +6,7 @@ so a rejected spec costs nothing but a few milliseconds.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import subprocess
 from collections.abc import Callable
@@ -16,6 +17,7 @@ from pathlib import Path
 from gira_iso.bases import builds_dir
 from gira_iso.builder import packer
 from gira_iso.builder.base import ensure_base_image
+from gira_iso.builder.catalog import FAILED_MARKER
 from gira_iso.builder.manifest import BaseRef, BuilderInfo, PolicyRef, build_manifest
 from gira_iso.builder.render import (
     BUILD_KEY_MARKER,
@@ -65,6 +67,24 @@ def _build_dir(work_root: Path, sha: str) -> Path:
         raise BuildError(f"build directory already exists: {directory}")
     directory.mkdir(parents=True)
     return directory
+
+
+def _mark_failed(build_dir: Path, error: BaseException) -> None:
+    """Leave a note in the directory so `clean` can tell a failed build from foreign files."""
+    reason = (
+        "interrupted"
+        if isinstance(error, KeyboardInterrupt)
+        else f"{type(error).__name__}: {error}"
+    )
+    stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with contextlib.suppress(OSError):
+        (build_dir / FAILED_MARKER).write_text(f"{stamp} {reason[:2000]}\n", encoding="utf-8")
+
+
+def _discard_key(key_path: Path) -> None:
+    for path in (key_path, key_path.with_suffix(".pub")):
+        with contextlib.suppress(OSError):
+            path.unlink(missing_ok=True)
 
 
 def _generate_key(path: Path) -> str:
@@ -126,54 +146,62 @@ def build_image(
     logs.mkdir()
 
     key_path = build_dir / "id_ed25519"
-    public_key = _generate_key(key_path)
+    # The build key is a credential for a user that must not outlive the build. Whatever happens
+    # (success, failure, Ctrl+C) it is deleted, and a build that did not finish says so.
+    try:
+        public_key = _generate_key(key_path)
 
-    step("Generando la plantilla de Packer y el seed de cloud-init")
-    rendered = render(spec, build_dir, allowlist.mandatory_packages, public_key)
+        step("Generando la plantilla de Packer y el seed de cloud-init")
+        rendered = render(spec, build_dir, allowlist.mandatory_packages, public_key)
 
-    template_dir = rendered.packer_dir
-    step("Inicializando Packer (plugin qemu)")
-    packer.init(template_dir, logs / "packer-init.log")
-    step("Construyendo la imagen: arranca una VM, instala y limpia")
-    packer.build(
-        template_dir,
-        {
-            "base_image": str(base_path.resolve()),
-            "base_sha256": base_sha,
-            "seed_dir": str(rendered.seed_dir.resolve()),
-            "ssh_private_key_file": str(key_path.resolve()),
-            "build_dir": str(build_dir.resolve()),
-        },
-        logs / "packer-build.log",
-        on_line=on_line,
-    )
+        template_dir = rendered.packer_dir
+        step("Inicializando Packer (plugin qemu)")
+        packer.init(template_dir, logs / "packer-init.log")
+        step("Construyendo la imagen: arranca una VM, instala y limpia")
+        packer.build(
+            template_dir,
+            {
+                "base_image": str(base_path.resolve()),
+                "base_sha256": base_sha,
+                "seed_dir": str(rendered.seed_dir.resolve()),
+                "ssh_private_key_file": str(key_path.resolve()),
+                "build_dir": str(build_dir.resolve()),
+            },
+            logs / "packer-build.log",
+            on_line=on_line,
+        )
 
-    image = build_dir / "image" / IMAGE_NAME
-    if not image.is_file():
-        raise BuildError(f"packer finished but produced no image at {image}")
+        image = build_dir / "image" / IMAGE_NAME
+        if not image.is_file():
+            raise BuildError(f"packer finished but produced no image at {image}")
 
-    step("Registrando el manifest con hashes y procedencia")
-    manifest = build_manifest(
-        spec=spec,
-        spec_sha256=sha,
-        name=name,
-        base=BaseRef(
-            os=spec.base.os,
-            version=spec.base.version,
-            url=reference["url"],
-            sha256=base_sha,
-        ),
-        policy=_policy_ref(),
-        builder=BuilderInfo(
-            packer_version=packer.version(),
-            plugin_version=PLUGIN_VERSION,
-            template_sha256=rendered.template_sha256,
-        ),
-        packages=effective_packages(spec, allowlist.mandatory_packages),
-        services=effective_services(spec),
-        artifact_path=image,
-        virtual_size_bytes=_virtual_size(image),
-    )
-    manifest_path = manifest.write(build_dir)
+        step("Registrando el manifest con hashes y procedencia")
+        manifest = build_manifest(
+            spec=spec,
+            spec_sha256=sha,
+            name=name,
+            base=BaseRef(
+                os=spec.base.os,
+                version=spec.base.version,
+                url=reference["url"],
+                sha256=base_sha,
+            ),
+            policy=_policy_ref(),
+            builder=BuilderInfo(
+                packer_version=packer.version(),
+                plugin_version=PLUGIN_VERSION,
+                template_sha256=rendered.template_sha256,
+            ),
+            packages=effective_packages(spec, allowlist.mandatory_packages),
+            services=effective_services(spec),
+            artifact_path=image,
+            virtual_size_bytes=_virtual_size(image),
+        )
+        manifest_path = manifest.write(build_dir)
 
-    return BuildResult(build_dir=build_dir, image=image, manifest=manifest_path)
+        return BuildResult(build_dir=build_dir, image=image, manifest=manifest_path)
+    except BaseException as exc:
+        _mark_failed(build_dir, exc)
+        raise
+    finally:
+        _discard_key(key_path)

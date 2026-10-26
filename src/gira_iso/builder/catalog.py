@@ -51,6 +51,31 @@ def scan_builds(work_root: Path) -> list[tuple[Manifest, Path]]:
     return found
 
 
+# A build directory the tool itself created has at least one of these, or the failure marker
+# (builder/build.py). Anything else under the builds directory is somebody else's and is left alone.
+_BUILD_SUBDIRS = ("packer", "provision", "seed", "logs")
+FAILED_MARKER = "FAILED"
+
+
+def find_incomplete(work_root: Path) -> list[Path]:
+    """Build directories with no manifest: failed, cancelled or killed before finishing."""
+    if not work_root.is_dir():
+        return []
+    found = []
+    for child in sorted(work_root.iterdir()):
+        if child.is_symlink() or not child.is_dir() or (child / MANIFEST_NAME).exists():
+            continue
+        if (child / FAILED_MARKER).exists() or any(
+            (child / sub).is_dir() for sub in _BUILD_SUBDIRS
+        ):
+            found.append(child)
+    return found
+
+
+def directory_size(path: Path) -> int:
+    return sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
+
+
 def resolve_image(reference: str, work_root: Path) -> tuple[Manifest, Path]:
     """A path, an image name or a build id prefix, in that order."""
     candidate = Path(reference).expanduser()
