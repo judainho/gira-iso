@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Tests
+        run: uv run pytest -q
+      - name: The shipped example must stay valid
+        run: uv run vmforge check examples/nginx-web.yaml
+      - name: The allowlist must ship a pinned base
+        run: uv run vmforge policy
+
+  toolchain:
+    # The lock is only worth having if a fresh machine can satisfy it.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host packages
+        run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils
+      - name: Install pinned packer
+        run: |
+          curl -fsSL -o /tmp/packer.zip https://releases.hashicorp.com/packer/1.16.2/packer_1.16.2_linux_amd64.zip
+          mkdir -p "$HOME/.local/bin"
+          python3 -c "import zipfile;zipfile.ZipFile('/tmp/packer.zip').extract('packer','$HOME/.local/bin')"
+          chmod +x "$HOME/.local/bin/packer"
+      - name: Install pinned goss
+        run: |
+          curl -fsSL -o /tmp/goss.tgz https://github.com/goss-org/goss/releases/download/v0.4.10/goss_0.4.10_linux_x86_64.tar.gz
+          tar xzf /tmp/goss.tgz -C /tmp goss
+          install -m 0755 /tmp/goss "$HOME/.local/bin/goss"
+      - name: Verify the toolchain matches the lock
+        run: ./scripts/check-toolchain.sh

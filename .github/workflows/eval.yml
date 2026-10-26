@@ -1,0 +1,41 @@
+name: eval
+
+# Model runs cost money and are not deterministic, so they never gate a pull request.
+# This workflow is manual, and it saves the recording as a build artifact: a score
+# without the raw responses is a number nobody can audit.
+on:
+  workflow_dispatch:
+    inputs:
+      category:
+        description: Only run one category (empty = all)
+        required: false
+        default: ""
+      model:
+        description: Model id to report
+        required: false
+        default: ""
+
+jobs:
+  eval:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - name: Run the golden dataset
+        env:
+          VMFORGE_LLM_BASE_URL: ${{ secrets.VMFORGE_LLM_BASE_URL }}
+          VMFORGE_LLM_API_KEY: ${{ secrets.VMFORGE_LLM_API_KEY }}
+          VMFORGE_LLM_MODEL: ${{ inputs.model || vars.VMFORGE_LLM_MODEL }}
+          CATEGORY: ${{ inputs.category }}
+        run: |
+          mkdir -p eval/runs
+          uv run vmforge eval \
+            ${CATEGORY:+--category "$CATEGORY"} \
+            --record "eval/runs/${GITHUB_RUN_ID}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eval-run
+          path: eval/runs/

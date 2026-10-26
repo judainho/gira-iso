@@ -1,0 +1,38 @@
+# A web image: nginx serving a health endpoint, one deploy user.
+#
+# This is the shape the natural-language interpreter must produce: declarative,
+# bounded, and valid against the v0 schema and policy allowlist.
+spec_version: "0"
+
+base:
+  os: ubuntu
+  version: "24.04"
+
+disk_size: 10G
+
+packages:
+  - curl
+  - nginx
+  - qemu-guest-agent
+
+services:
+  enable:
+    - nginx
+    - qemu-guest-agent
+
+users:
+  - name: deploy
+    sudo: true
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f
+
+files:
+  - path: /etc/nginx/conf.d/health.conf
+    mode: "0644"
+    content: |
+      server {
+          listen 8080;
+          location /health {
+              return 200 "ok\n";
+          }
+      }

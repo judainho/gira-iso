@@ -1,0 +1,113 @@
+# The allowlist is the security boundary. The LLM produced the spec, the spec is
+# untrusted, and every value in it must be present here before it reaches a builder.
+#
+# Editing this file is a security change: it needs review like code.
+
+version: 1
+
+# Base images are selected by identifier, never by URL. A spec cannot point the
+# build at an arbitrary download; it can only name a version listed here, and the
+# builder is expected to verify the checksum before using it.
+base_images:
+  ubuntu:
+    "24.04":
+      url: https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img
+      sha256: 04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94
+
+# Packages the build always installs, whether or not the spec asks for them.
+# `qemu-guest-agent` is here because phase 0 proved the official cloud image does
+# not ship it, and the image is not "cloud ready" without it.
+mandatory_packages:
+  - cloud-init
+  - openssh-server
+  - qemu-guest-agent
+
+# Curated catalogue. Anything not listed is rejected: there is no escape hatch.
+packages:
+  - apache2
+  - build-essential
+  - ca-certificates
+  - certbot
+  - chrony
+  - cifs-utils
+  - cloud-init
+  - containerd
+  - curl
+  - docker.io
+  - dnsutils
+  - fail2ban
+  - git
+  - htop
+  - jq
+  - logrotate
+  - mariadb-server
+  - memcached
+  - mysql-server
+  - net-tools
+  - nfs-common
+  - nginx
+  - nginx-extras
+  - openssh-server
+  - postgresql
+  - postgresql-client
+  - postgresql-contrib
+  - prometheus-node-exporter
+  - python3
+  - python3-certbot-nginx
+  - python3-pip
+  - python3-venv
+  - qemu-guest-agent
+  - redis-server
+  - rsync
+  - supervisor
+  - tmux
+  - ufw
+  - unattended-upgrades
+  - unzip
+  - vim
+  - wget
+
+# Services the spec may start or stop.
+services:
+  - chrony
+  - cron
+  - docker
+  - fail2ban
+  - nginx
+  - postgresql
+  - prometheus-node-exporter
+  - qemu-guest-agent
+  - redis-server
+  - ssh
+  - ufw
+
+# Required by the verifier: it needs a guaranteed way into the guest, and the
+# guest agent is part of being cloud-ready. A spec cannot disable these.
+required_services:
+  - ssh
+  - qemu-guest-agent
+
+# Writable path prefixes. A path is allowed only if it equals an entry or falls
+# under an entry that ends with a slash. Directories holding authorisation, key or
+# unit definitions are deliberately absent.
+file_prefixes:
+  - /etc/default/
+  - /etc/logrotate.d/
+  - /etc/motd
+  - /etc/nginx/
+  - /etc/profile.d/
+  - /etc/security/limits.d/
+  - /etc/sysctl.d/
+  - /etc/systemd/journald.conf
+
+# Defence in depth, not the primary control: even if a prefix above is widened by
+# mistake, these paths stay unwritable.
+forbidden_prefixes:
+  - /etc/cron
+  - /etc/ssh/
+  - /etc/sudoers
+  - /etc/sudoers.d/
+  - /home/
+  - /lib/systemd/system/
+  - /root/
+  - /usr/lib/systemd/system/

@@ -1,0 +1,33 @@
+# Toolchain the pipeline was actually tested against.
+#
+# Every entry is pinned by version and by the sha256 of the installed binary, so a
+# machine that differs is detected instead of quietly producing different images.
+# Verify with: ./scripts/check-toolchain.sh
+#
+# Regenerating this file is a reviewed change, not a convenience command.
+
+packer:
+  version: "1.16.2"
+  sha256: "6f64a1e9e71be8b3a2f0225ccf0d51b5446fbf79d9ad323e917a0126ab6ee38a"
+  source: "https://releases.hashicorp.com/packer/1.16.2/packer_1.16.2_linux_amd64.zip"
+
+packer_plugin_qemu:
+  version: "1.1.7"
+  source: "github.com/hashicorp/qemu"
+
+goss:
+  version: "0.4.10"
+  sha256: "29d64f541c2b6edee5c7ee75dd5dd4da1c8b94e336c56ffeb864ae460a527c4f"
+  source: "https://github.com/goss-org/goss/releases/download/v0.4.10/goss_0.4.10_linux_x86_64.tar.gz"
+
+# QEMU is checked by minimum version, not exact: patch releases do not change what a
+# build produces, and pinning it exactly would fail on every other distribution.
+qemu:
+  minimum_version: "8.2"
+  tested_version: "10.2.1"
+  source: "distribution package (qemu-system-x86)"
+
+host_packages:
+  - cloud-image-utils
+  - qemu-system-x86
+  - qemu-utils

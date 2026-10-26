@@ -1,0 +1,23 @@
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build artifacts: images, overlays, seeds and Packer output are never committed
+builds/
+*.qcow2
+*.iso
+*.img
+
+# Local cache mirror
+.cache/
+
+# Evaluation recordings are result artifacts, not source
+eval/runs/
+
+# Gentle AI local cache
+.atl/.skill-registry.cache.json
