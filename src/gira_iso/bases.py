@@ -49,6 +49,11 @@ def home() -> Path:
     return Path(chosen).expanduser() if chosen else Path.home() / ".local" / "share" / "gira-iso"
 
 
+def builds_dir() -> Path:
+    """Default place for builds, the same for the menu and the scripted commands."""
+    return home() / "builds"
+
+
 def bases_dir() -> Path:
     return home() / "bases"
 

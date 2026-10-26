@@ -20,8 +20,15 @@ import yaml
 from pydantic import ValidationError
 
 from gira_iso import __version__
+from gira_iso.bases import builds_dir
 from gira_iso.builder.build import BuildRejected, build_image
-from gira_iso.builder.export import ExportError, export_image, scan_builds
+from gira_iso.builder.export import (
+    ExportError,
+    delete_build,
+    describe,
+    export_image,
+    scan_builds,
+)
 from gira_iso.builder.manifest import MANIFEST_NAME, Manifest
 from gira_iso.eval.dataset import load_cases
 from gira_iso.eval.runner import replay, run_eval
@@ -44,6 +51,8 @@ from gira_iso.verify.verify import VerificationError, VerifyResult, verify_build
 EXIT_OK = 0
 EXIT_REJECTED = 1
 EXIT_INVALID = 2
+
+WORK_ROOT_HELP = "Where builds are written (default: <gira-iso home>/builds)"
 
 app = typer.Typer(
     add_completion=False,
@@ -176,11 +185,13 @@ def _print_checks(result: VerifyResult) -> None:
 @app.command("list")
 def list_images(
     work_root: Path = typer.Option(
-        None, "--work-root", help="Where builds are written (default: ./builds)"
+        None,
+        "--work-root",
+        help=WORK_ROOT_HELP,
     ),
 ) -> None:
     """List the images that have been created."""
-    root = work_root or Path("builds")
+    root = work_root or builds_dir()
     builds = _scan_builds(root)
     if not builds:
         typer.echo(f"no images found in {root}")
@@ -247,7 +258,9 @@ def create(
     ),
     name: str = typer.Option(None, "--name", help="Image name (default: the spec file name)"),
     work_root: Path = typer.Option(
-        None, "--work-root", help="Where builds are written (default: ./builds)"
+        None,
+        "--work-root",
+        help=WORK_ROOT_HELP,
     ),
     verify: bool = typer.Option(
         False, "--verify", help="Boot the image and verify it after building"
@@ -303,12 +316,14 @@ def download(
     ),
     to: Path = typer.Option(Path("."), "--to", help="Destination directory"),
     work_root: Path = typer.Option(
-        None, "--work-root", help="Where builds are written (default: ./builds)"
+        None,
+        "--work-root",
+        help=WORK_ROOT_HELP,
     ),
     force: bool = typer.Option(False, "--force", help="Overwrite an existing file"),
 ) -> None:
     """Copy a built image and its manifest to another directory."""
-    manifest, manifest_path = _resolve_image(image, work_root or Path("builds"))
+    manifest, manifest_path = _resolve_image(image, work_root or builds_dir())
     build_dir = manifest_path.parent
     label = _checked_name(_display_name(manifest, build_dir))
     try:
@@ -322,6 +337,45 @@ def download(
     typer.echo(f"  image     {destination}")
     typer.echo(f"  manifest  {manifest_destination}")
     typer.echo(f"  sha256    {manifest.artifact.sha256}")
+
+
+@app.command()
+def show(
+    image: str = typer.Argument(..., help="Image name, build id prefix, directory or manifest"),
+    work_root: Path = typer.Option(
+        None,
+        "--work-root",
+        help=WORK_ROOT_HELP,
+    ),
+) -> None:
+    """Show the provenance recorded for one image."""
+    manifest, manifest_path = _resolve_image(image, work_root or builds_dir())
+    for label, value in describe(manifest, manifest_path.parent):
+        typer.echo(f"  {label:<14}{value}")
+
+
+@app.command()
+def delete(
+    image: str = typer.Argument(..., help="Image name, build id prefix, directory or manifest"),
+    work_root: Path = typer.Option(
+        None,
+        "--work-root",
+        help=WORK_ROOT_HELP,
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask for confirmation"),
+) -> None:
+    """Delete one image and its build directory."""
+    root = work_root or builds_dir()
+    manifest, manifest_path = _resolve_image(image, root)
+    label = _display_name(manifest, manifest_path.parent)
+    if not yes and not typer.confirm(f"delete {label} ({manifest_path.parent.name})?"):
+        raise typer.Exit(EXIT_OK)
+    try:
+        removed = delete_build(manifest_path, root)
+    except ExportError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(EXIT_INVALID) from None
+    typer.echo(f"  deleted   {removed}")
 
 
 @app.command(hidden=True)
@@ -352,7 +406,9 @@ def plan(spec: Path = typer.Argument(..., help="Path to a spec YAML file")) -> N
 def build(
     spec: Path = typer.Argument(..., help="Path to a spec YAML file"),
     work_root: Path = typer.Option(
-        None, "--work-root", help="Where builds are written (default: ./builds)"
+        None,
+        "--work-root",
+        help=WORK_ROOT_HELP,
     ),
 ) -> None:
     """Reject, or build the image and write its manifest."""

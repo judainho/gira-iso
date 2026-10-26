@@ -17,6 +17,7 @@ from rich.progress import (
     BarColumn,
     DownloadColumn,
     Progress,
+    TaskID,
     TextColumn,
     TimeRemainingColumn,
     TransferSpeedColumn,
@@ -27,11 +28,18 @@ from rich.table import Table
 from rich.text import Text
 
 from gira_iso import __version__, settings
-from gira_iso.bases import UserBaseError, home, list_user_bases, register_base
+from gira_iso.bases import UserBaseError, builds_dir, list_user_bases, register_base
 from gira_iso.builder import packer
-from gira_iso.builder.base import BaseImageError, cache_dir
+from gira_iso.builder.base import BaseImageError, cache_dir, ensure_base_image
 from gira_iso.builder.build import BuildRejected, build_image
-from gira_iso.builder.export import ExportError, export_image, scan_builds
+from gira_iso.builder.export import (
+    ExportError,
+    ExportExists,
+    delete_build,
+    describe,
+    export_image,
+    scan_builds,
+)
 from gira_iso.builder.manifest import Manifest
 from gira_iso.nl.client import (
     DEFAULT_BASE_URL,
@@ -55,6 +63,7 @@ NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 MAX_QUESTION_ROUNDS = 3
 
 MAX_KEY_ATTEMPTS = 3
+PENDING_STATE = "se descarga al usarla"
 EXAMPLES = (
     ("Servidor web", "Un servidor web con nginx y un usuario deploy con sudo"),
     ("Docker", "Una imagen con docker instalado y htop"),
@@ -74,10 +83,6 @@ LOGO = r"""
  ╚██████╔╝██║██║  ██║██║  ██║      ██║███████║╚██████╔╝
   ╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝      ╚═╝╚══════╝ ╚═════╝
 """
-
-
-def builds_dir() -> Path:
-    return home() / "builds"
 
 
 def default_downloads() -> Path:
@@ -138,11 +143,12 @@ def list_images(console: Console) -> None:
         console.print(f"[yellow]Todavía no hay imágenes[/] en {builds_dir()}")
         return
     table = Table(border_style="dim", header_style=f"bold {ACCENT}")
-    for column in ("Nombre", "Creada (UTC)", "Disco", "Base", "Build"):
+    for column in ("#", "Nombre", "Creada (UTC)", "Disco", "Base", "Build"):
         table.add_column(column)
-    for manifest, manifest_path in builds:
+    for index, (manifest, manifest_path) in enumerate(builds, start=1):
         build_dir = manifest_path.parent
         table.add_row(
+            str(index),
             manifest.name or build_dir.name,
             manifest.created_at.strftime("%Y-%m-%d %H:%M"),
             f"{manifest.artifact.virtual_size_bytes / 1024**3:.1f} GB",
@@ -151,6 +157,86 @@ def list_images(console: Console) -> None:
         )
     console.print(table)
     console.print(f"[dim]Ubicación: {builds_dir()}[/]")
+
+    choice = Prompt.ask(
+        "Número de imagen para ver, exportar o eliminar (Enter para volver)",
+        default="",
+        show_default=False,
+        console=console,
+    ).strip()
+    if not choice:
+        return
+    if not (choice.isdigit() and 1 <= int(choice) <= len(builds)):
+        console.print("[yellow]Número fuera de rango.[/]")
+        return
+    manifest, manifest_path = builds[int(choice) - 1]
+    _image_actions(console, manifest, manifest_path)
+
+
+def _image_actions(console: Console, manifest: Manifest, manifest_path: Path) -> None:
+    build_dir = manifest_path.parent
+    label = manifest.name or build_dir.name
+    while True:
+        action = Prompt.ask(
+            f"¿Qué hago con [bold]{label}[/]?",
+            choices=["detalle", "exportar", "eliminar", "volver"],
+            default="detalle",
+            console=console,
+        )
+        if action == "volver":
+            return
+        if action == "detalle":
+            table = Table.grid(padding=(0, 2))
+            for key, value in describe(manifest, build_dir):
+                table.add_row(f"[dim]{key}[/]", Text(value))
+            console.print(Panel(table, title=label, border_style=ACCENT))
+        elif action == "exportar":
+            _export_from_menu(console, manifest, manifest_path, label)
+        elif _delete_from_menu(console, manifest_path, label):
+            return
+
+
+def _export_from_menu(
+    console: Console, manifest: Manifest, manifest_path: Path, label: str
+) -> None:
+    remembered = settings.load()
+    destination = Path(
+        Prompt.ask(
+            "¿Dónde la copio?",
+            default=remembered.last_destination or str(default_downloads()),
+            console=console,
+        )
+    ).expanduser()
+    safe_label = label if NAME_RE.match(label) else manifest_path.parent.name
+    try:
+        try:
+            image, manifest_copy = export_image(manifest, manifest_path, destination, safe_label)
+        except ExportExists:
+            if not Confirm.ask("Ya existe. ¿Sobrescribir?", default=False, console=console):
+                return
+            image, manifest_copy = export_image(
+                manifest, manifest_path, destination, safe_label, force=True
+            )
+    except ExportError as exc:
+        console.print(f"[red]✘ {exc}[/]")
+        return
+    console.print(Text.assemble(("Imagen    ", "dim"), (str(image), "bold green")), soft_wrap=True)
+    console.print(Text.assemble(("Manifest  ", "dim"), str(manifest_copy)), soft_wrap=True)
+
+
+def _delete_from_menu(console: Console, manifest_path: Path, label: str) -> bool:
+    """Deleting is irreversible: the user must type the name. Returns True when deleted."""
+    typed = Prompt.ask(f"Escribe [bold]{label}[/] para confirmar (Enter cancela)", default="")
+    if typed.strip() != label:
+        console.print("[dim]No se eliminó nada.[/]")
+        return False
+    try:
+        removed = delete_build(manifest_path, builds_dir())
+    except ExportError as exc:
+        console.print(f"[red]✘ {exc}[/]")
+        return False
+    console.print(f"[green]✔ Eliminada:[/] {removed}")
+    return True
 
 
 def _base_rows() -> list[tuple[str, str, str, str, str]]:
@@ -164,7 +250,7 @@ def _base_rows() -> list[tuple[str, str, str, str, str]]:
                 state, origin = "en disco", "subida"
             else:
                 cached = cache_dir() / reference["url"].rsplit("/", 1)[-1]
-                state = "en caché" if cached.exists() else "se descarga al usarla"
+                state = "en caché" if cached.exists() else PENDING_STATE
                 origin = "oficial"
             rows.append((origin, os_name, version, state, reference["sha256"]))
     return rows
@@ -172,12 +258,47 @@ def _base_rows() -> list[tuple[str, str, str, str, str]]:
 
 def list_bases(console: Console) -> None:
     section(console, "Imágenes base")
+    rows = _base_rows()
     table = Table(border_style="dim", header_style=f"bold {ACCENT}")
     for column in ("#", "Origen", "SO", "Versión", "Estado", "sha256"):
         table.add_column(column)
-    for index, (origin, os_name, version, state, sha) in enumerate(_base_rows(), start=1):
+    for index, (origin, os_name, version, state, sha) in enumerate(rows, start=1):
         table.add_row(str(index), origin, os_name, version, state, f"{sha[:16]}…")
     console.print(table)
+
+    pending = [(index, row) for index, row in enumerate(rows, start=1) if row[3] == PENDING_STATE]
+    if not pending:
+        return
+    choice = Prompt.ask(
+        "Número de una base para descargarla ahora (Enter para volver)",
+        default="",
+        show_default=False,
+        console=console,
+    ).strip()
+    if not choice:
+        return
+    match = next((row for index, row in pending if str(index) == choice), None)
+    if match is None:
+        console.print("[yellow]Esa base no necesita descarga.[/]")
+        return
+    _download_official(console, match[1], match[2])
+
+
+def _download_official(console: Console, os_name: str, version: str) -> None:
+    bar = DownloadBar(console)
+    try:
+        path, sha = ensure_base_image(os_name, version, load_allowlist(), on_progress=bar)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Descarga cancelada.[/]")
+        return
+    except (BaseImageError, OSError) as exc:
+        console.print(f"[red]✘ {exc}[/]")
+        return
+    finally:
+        bar.stop()
+    console.print(f"[green]✔ {os_name} {version} descargada y verificada[/]")
+    console.print(Text.assemble(("sha256  ", "dim"), sha), soft_wrap=True)
+    console.print(Text.assemble(("archivo ", "dim"), str(path)), soft_wrap=True)
 
 
 def upload_base(console: Console) -> None:
@@ -218,10 +339,12 @@ def _choose_base(console: Console) -> tuple[str, str]:
     for index, (origin, os_name, version, state, _) in enumerate(rows, start=1):
         table.add_row(str(index), origin, os_name, version, state)
     console.print(table)
+    # Default to the version the pipeline was developed and tested against.
+    tested = next((i for i, row in enumerate(rows, 1) if row[1:3] == ("ubuntu", "24.04")), 1)
     choice = Prompt.ask(
         "Imagen base",
         choices=[str(i) for i in range(1, len(rows) + 1)],
-        default="1",
+        default=str(tested),
         console=console,
     )
     _, os_name, version, _, _ = rows[int(choice) - 1]
@@ -305,17 +428,29 @@ def _ask_request(console: Console) -> str:
     return request
 
 
-def _download_bar(console: Console):
-    progress = Progress(
-        TextColumn("  [dim]descarga[/]"),
-        BarColumn(),
-        DownloadColumn(),
-        TransferSpeedColumn(),
-        TimeRemainingColumn(),
-        console=console,
-        transient=True,
-    )
-    return progress
+class DownloadBar:
+    """A transient progress bar fed by (done, total) callbacks; starts on the first one."""
+
+    def __init__(self, console: Console) -> None:
+        self._progress = Progress(
+            TextColumn("  [dim]descarga[/]"),
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+            transient=True,
+        )
+        self._task: TaskID | None = None
+
+    def __call__(self, done: int, total: int) -> None:
+        if self._task is None:
+            self._task = self._progress.add_task("download", total=total or None)
+            self._progress.start()
+        self._progress.update(self._task, completed=done, total=total or None)
+
+    def stop(self) -> None:
+        self._progress.stop()
 
 
 def create_image(console: Console, config: LlmConfig) -> None:
@@ -349,17 +484,10 @@ def create_image(console: Console, config: LlmConfig) -> None:
     )
 
     section(console, "Construcción")
-    bar = _download_bar(console)
-    task: list[int] = []
+    bar = DownloadBar(console)
 
     def on_progress(message: str) -> None:
         console.print(f"[bold {ACCENT}]▸[/] {message}")
-
-    def on_download(done: int, total: int) -> None:
-        if not task:
-            task.append(bar.add_task("download", total=total or None))
-            bar.start()
-        bar.update(task[0], completed=done, total=total or None)
 
     def on_line(line: str) -> None:
         # A Text, not markup: packer output is full of square brackets.
@@ -372,7 +500,7 @@ def create_image(console: Console, config: LlmConfig) -> None:
             name=name,
             progress=on_progress,
             on_line=on_line,
-            on_download=on_download,
+            on_download=bar,
         )
     except BuildRejected as rejected:
         bar.stop()

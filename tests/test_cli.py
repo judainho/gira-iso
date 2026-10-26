@@ -311,7 +311,7 @@ def test_menu_asks_for_the_key_first_then_creates_and_reports_the_path(
     built = _tui_fixture(monkeypatch, tmp_path, json.dumps({"kind": "spec", "spec": spec}))
     destination = tmp_path / "out"
 
-    answers = f"secret-key\n4\nun servidor nginx\nweb\ny\nn\n{destination}\n0\n"
+    answers = f"secret-key\n4\n\nun servidor nginx\nweb\ny\nn\n{destination}\n0\n"
     result = runner.invoke(app, [], input=answers)
 
     assert result.exit_code == 0, result.output
@@ -352,7 +352,7 @@ def test_menu_lists_existing_images(monkeypatch, tmp_path: Path) -> None:
     _tui_fixture(monkeypatch, tmp_path)
     monkeypatch.setattr(tui, "builds_dir", lambda: tmp_path / "builds")
 
-    result = runner.invoke(app, [], input="k\n1\n0\n")
+    result = runner.invoke(app, [], input="k\n1\n\n0\n")
 
     assert result.exit_code == 0, result.output
     assert "web" in result.output
@@ -441,7 +441,7 @@ def test_examples_can_be_picked_by_number_and_tokens_are_shown(monkeypatch, tmp_
     completer = Counting(_spec_reply())
     monkeypatch.setattr(tui, "OpenAiCompatible", lambda config: completer)
 
-    result = runner.invoke(app, [], input=f"k\n4\n2\nweb\nn\nn\n{tmp_path / 'out'}\n0\n")
+    result = runner.invoke(app, [], input=f"k\n4\n\n2\nweb\nn\nn\n{tmp_path / 'out'}\n0\n")
 
     assert "docker instalado y htop" in completer.last_user
     assert "321 entrada" in result.output
@@ -454,7 +454,7 @@ def test_name_and_destination_are_remembered_for_the_next_run(monkeypatch, tmp_p
     _tui_fixture(monkeypatch, tmp_path, _spec_reply())
     destination = tmp_path / "out"
 
-    runner.invoke(app, [], input=f"k\n4\nun nginx\nweb\ny\nn\n{destination}\n0\n")
+    runner.invoke(app, [], input=f"k\n4\n\nun nginx\nweb\ny\nn\n{destination}\n0\n")
 
     saved = settings.load()
     assert saved.last_name == "web"
@@ -471,7 +471,178 @@ def test_ctrl_c_in_an_action_returns_to_the_menu(monkeypatch, tmp_path: Path) ->
 
     monkeypatch.setattr(tui, "list_images", boom)
 
-    result = runner.invoke(app, [], input="k\n1\n0\n")
+    result = runner.invoke(app, [], input="k\n1\n\n0\n")
 
     assert "Acción cancelada" in result.output
     assert result.output.count("Menú") == 2
+
+
+# --- show / delete -------------------------------------------------------------------
+
+
+def test_show_prints_the_recorded_provenance(tmp_path: Path) -> None:
+    write_build(tmp_path)
+
+    result = runner.invoke(app, ["show", "web", "--work-root", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "ubuntu 24.04" in result.output
+    assert "1" * 64 in result.output
+    assert "nginx" in result.output
+
+
+def test_delete_removes_the_build_after_confirmation(tmp_path: Path) -> None:
+    build_dir = write_build(tmp_path)
+
+    result = runner.invoke(app, ["delete", "web", "--work-root", str(tmp_path)], input="y\n")
+
+    assert result.exit_code == 0, result.output
+    assert not build_dir.exists()
+
+
+def test_delete_keeps_the_build_when_not_confirmed(tmp_path: Path) -> None:
+    build_dir = write_build(tmp_path)
+
+    result = runner.invoke(app, ["delete", "web", "--work-root", str(tmp_path)], input="n\n")
+
+    assert result.exit_code == 0
+    assert build_dir.exists()
+
+
+def test_delete_with_yes_skips_the_question(tmp_path: Path) -> None:
+    build_dir = write_build(tmp_path)
+
+    result = runner.invoke(app, ["delete", "web", "--work-root", str(tmp_path), "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert not build_dir.exists()
+
+
+def test_delete_refuses_a_build_outside_the_work_root(tmp_path: Path) -> None:
+    elsewhere = write_build(tmp_path / "elsewhere")
+
+    result = runner.invoke(
+        app, ["delete", str(elsewhere), "--work-root", str(tmp_path / "builds"), "--yes"]
+    )
+
+    assert result.exit_code == 2
+    assert "is not a build under" in result.output
+    assert elsewhere.exists()
+
+
+# --- menu: images and bases ----------------------------------------------------------
+
+
+def test_menu_image_detail_export_and_delete(monkeypatch, tmp_path: Path) -> None:
+    import gira_iso.tui as tui
+
+    _tui_fixture(monkeypatch, tmp_path)
+    monkeypatch.setattr(tui, "builds_dir", lambda: tmp_path / "builds")
+    out = tmp_path / "out"
+
+    steps = [
+        "k",
+        "1",
+        "1",  # open the first image
+        "detalle",
+        "exportar",
+        str(out),
+        "eliminar",
+        "web",  # type the name to confirm
+        "0",
+    ]
+    result = runner.invoke(app, [], input="\n".join(steps) + "\n")
+
+    assert result.exit_code == 0, result.output
+    assert "Imagen sha256" in result.output
+    assert (out / "web.qcow2").is_file()
+    assert "Eliminada" in result.output
+    assert not (tmp_path / "builds" / "20260101T000000Z-abcdef123456").exists()
+
+
+def test_menu_delete_needs_the_exact_name(monkeypatch, tmp_path: Path) -> None:
+    import gira_iso.tui as tui
+
+    _tui_fixture(monkeypatch, tmp_path)
+    monkeypatch.setattr(tui, "builds_dir", lambda: tmp_path / "builds")
+
+    steps = ["k", "1", "1", "eliminar", "wrong", "volver", "0"]
+    result = runner.invoke(app, [], input="\n".join(steps) + "\n")
+
+    assert "No se eliminó nada" in result.output
+    assert (tmp_path / "builds" / "20260101T000000Z-abcdef123456").exists()
+
+
+def test_menu_downloads_an_official_base(monkeypatch, tmp_path: Path) -> None:
+    import gira_iso.tui as tui
+
+    _tui_fixture(monkeypatch, tmp_path)
+    monkeypatch.setattr(tui, "cache_dir", lambda: tmp_path / "empty-cache")
+    calls: list[tuple[str, str]] = []
+
+    def fake_ensure(os_name, version, allowlist, on_progress=None):
+        calls.append((os_name, version))
+        on_progress(5, 10)
+        return tmp_path / "base.img", "a" * 64
+
+    monkeypatch.setattr(tui, "ensure_base_image", fake_ensure)
+
+    result = runner.invoke(app, [], input="k\n3\n1\n0\n")
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("ubuntu", "22.04")]
+    assert "descargada y verificada" in result.output
+
+
+def test_menu_lists_both_official_bases(monkeypatch, tmp_path: Path) -> None:
+    _tui_fixture(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, [], input="k\n3\n\n0\n")
+
+    assert "22.04" in result.output
+    assert "24.04" in result.output
+
+
+def test_delete_build_refuses_symlinks_and_foreign_directories(tmp_path: Path) -> None:
+    import pytest
+
+    from gira_iso.builder.export import ExportError, delete_build
+
+    real = write_build(tmp_path / "elsewhere")
+    root = tmp_path / "builds"
+    root.mkdir()
+    link = root / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    with pytest.raises(ExportError, match="is not a build under"):
+        delete_build(link / "manifest.json", root)
+    with pytest.raises(ExportError, match="is not a build under"):
+        delete_build(real / "manifest.json", root)
+    assert real.exists()
+
+
+def test_delete_build_refuses_a_directory_without_a_manifest(tmp_path: Path) -> None:
+    import pytest
+
+    from gira_iso.builder.export import ExportError, delete_build
+
+    root = tmp_path / "builds"
+    stray = root / "not-a-build"
+    stray.mkdir(parents=True)
+
+    with pytest.raises(ExportError, match="has no manifest"):
+        delete_build(stray / "manifest.json", root)
+    assert stray.exists()
+
+
+def test_describe_lists_the_hashes_a_reader_needs(tmp_path: Path) -> None:
+    from gira_iso.builder.export import describe, scan_builds
+
+    write_build(tmp_path)
+    manifest, manifest_path = scan_builds(tmp_path)[0]
+
+    rows = dict(describe(manifest, manifest_path.parent))
+
+    assert rows["Base sha256"] == "1" * 64
+    assert rows["Imagen sha256"] == manifest.artifact.sha256
+    assert rows["Paquetes"] == "nginx"

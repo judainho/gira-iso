@@ -136,5 +136,5 @@ def test_package_name_is_constrained(package: str) -> None:
 
 
 def test_unpinned_base_version_passes_the_schema_and_is_left_to_the_policy() -> None:
-    spec = Spec.model_validate({"base": {"os": "ubuntu", "version": "22.04"}})
-    assert spec.base.version == "22.04"
+    spec = Spec.model_validate({"base": {"os": "ubuntu", "version": "20.04"}})
+    assert spec.base.version == "20.04"

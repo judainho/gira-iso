@@ -170,6 +170,6 @@ def test_allowlist_can_be_overridden_by_environment(tmp_path, monkeypatch) -> No
 
 def test_a_base_version_nobody_pinned_is_rejected_by_the_policy(valid_spec) -> None:
     other = valid_spec.model_copy(
-        update={"base": valid_spec.base.model_copy(update={"version": "22.04"})}
+        update={"base": valid_spec.base.model_copy(update={"version": "20.04"})}
     )
     assert evaluate(other, load_allowlist()).codes() == ("base.unknown",)

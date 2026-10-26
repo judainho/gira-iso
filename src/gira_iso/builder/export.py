@@ -18,6 +18,10 @@ class ExportError(RuntimeError):
         self.invalid = invalid
 
 
+class ExportExists(ExportError):
+    """The destination already holds an image with this name."""
+
+
 def scan_builds(work_root: Path) -> list[tuple[Manifest, Path]]:
     if not work_root.is_dir():
         return []
@@ -51,7 +55,7 @@ def export_image(
     destination = destination_dir / f"{label}{source.suffix}"
     manifest_destination = destination_dir / f"{label}.manifest.json"
     if (destination.exists() or manifest_destination.exists()) and not force:
-        raise ExportError(f"{destination} already exists (use --force)")
+        raise ExportExists(f"{destination} already exists (use --force)")
 
     shutil.copy2(source, destination)
     if file_sha256(destination) != manifest.artifact.sha256:
@@ -59,3 +63,43 @@ def export_image(
         raise ExportError("copied image does not match the manifest checksum")
     shutil.copy2(manifest_path, manifest_destination)
     return destination, manifest_destination
+
+
+def delete_build(manifest_path: Path, work_root: Path) -> Path:
+    """Remove one build directory. Refuses anything that is not a direct child of work_root."""
+    build_dir = manifest_path.parent
+    root = work_root.resolve()
+    if build_dir.is_symlink() or build_dir.resolve().parent != root:
+        raise ExportError(f"{build_dir} is not a build under {root}", invalid=True)
+    if not (build_dir / MANIFEST_NAME).is_file():
+        raise ExportError(f"{build_dir} has no manifest", invalid=True)
+    resolved = build_dir.resolve()
+    shutil.rmtree(resolved)
+    return resolved
+
+
+def describe(manifest: Manifest, build_dir: Path) -> list[tuple[str, str]]:
+    """Label/value rows for a human-readable view of one build."""
+    return [
+        ("Nombre", manifest.name or build_dir.name),
+        ("Creada (UTC)", manifest.created_at.strftime("%Y-%m-%d %H:%M:%S")),
+        ("Base", f"{manifest.base.os} {manifest.base.version}"),
+        ("Base sha256", manifest.base.sha256),
+        ("Paquetes", ", ".join(manifest.packages) or "-"),
+        ("Servicios", ", ".join(manifest.services) or "-"),
+        ("Spec sha256", manifest.spec_sha256),
+        ("Política", f"{manifest.policy.source}  ({manifest.policy.sha256[:16]}…)"),
+        (
+            "Constructor",
+            f"packer {manifest.builder.packer_version}, "
+            f"qemu plugin {manifest.builder.plugin_version}",
+        ),
+        ("Imagen", manifest.artifact.file),
+        ("Imagen sha256", manifest.artifact.sha256),
+        (
+            "Tamaño",
+            f"{manifest.artifact.size_bytes / 1024**2:.0f} MB en disco, "
+            f"{manifest.artifact.virtual_size_bytes / 1024**3:.1f} GB virtual",
+        ),
+        ("Directorio", str(build_dir)),
+    ]

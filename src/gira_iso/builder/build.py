@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from gira_iso.bases import builds_dir
 from gira_iso.builder import packer
 from gira_iso.builder.base import ensure_base_image
 from gira_iso.builder.manifest import BaseRef, BuilderInfo, PolicyRef, build_manifest
@@ -32,8 +33,6 @@ from gira_iso.policy.evaluate import (
 )
 from gira_iso.spec.canonical import spec_hash
 from gira_iso.spec.models import Spec
-
-DEFAULT_WORK_ROOT = Path("builds")
 
 
 class BuildRejected(RuntimeError):
@@ -112,7 +111,7 @@ def build_image(
     reference = allowlist.base_image(spec.base.os, spec.base.version)
     assert reference is not None
 
-    build_dir = _build_dir(work_root or DEFAULT_WORK_ROOT, sha)
+    build_dir = _build_dir(work_root or builds_dir(), sha)
     logs = build_dir / "logs"
     logs.mkdir()
 
