@@ -142,7 +142,7 @@ def config_from_env() -> LlmConfig:
     )
 
 
-def _strip_fences(text: str) -> str:
+def strip_fences(text: str) -> str:
     """Some endpoints wrap JSON in fences even in JSON mode."""
     stripped = text.strip()
     if stripped.startswith("```"):
@@ -156,7 +156,7 @@ def _strip_fences(text: str) -> str:
 
 def _parse(text: str) -> Interpretation:
     try:
-        payload = json.loads(_strip_fences(text))
+        payload = json.loads(strip_fences(text))
     except json.JSONDecodeError as exc:
         raise ValueError(f"response is not JSON: {exc}") from exc
     return Interpretation.model_validate(payload)

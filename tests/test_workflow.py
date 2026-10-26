@@ -54,6 +54,10 @@ class FakeIo:
         self.reviews.append(review)
         return self._decision
 
+    def propose(self, proposals, refusals):
+        self.calls.append("propose")
+        return []
+
     def destination(self, name):
         self.calls.append("destination")
         return self._destination

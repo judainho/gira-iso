@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from contextlib import AbstractContextManager, nullcontext
+from dataclasses import asdict
 from pathlib import Path
 
 import typer
@@ -13,6 +14,7 @@ import yaml
 from gira_iso.builder.manifest import Manifest
 from gira_iso.cli._app import WORK_ROOT_HELP, app
 from gira_iso.cli._shared import guarded, load_spec, print_checks, report, summarise
+from gira_iso.cli.allow import confirm_proposal
 from gira_iso.errors import (
     EXIT_INVALID,
     EXIT_OK,
@@ -26,6 +28,7 @@ from gira_iso.nl.client import (
     OpenAiCompatible,
 )
 from gira_iso.nl.explain import Explanation
+from gira_iso.proposals import Proposal, Refusal
 from gira_iso.spec.canonical import spec_hash, to_canonical_dict
 from gira_iso.workflow.create import CreateOutcome, CreateRequest, Status, run_create
 from gira_iso.workflow.events import Event, LogLine, Step
@@ -90,6 +93,14 @@ class _CliIo:
                 return Decision(proceed=False)
         return Decision(proceed=True, name=review.name, verify=review.verify)
 
+    def propose(self, proposals: list[Proposal], refusals: list[Refusal]) -> list[str]:
+        """Ask one package at a time. `--yes` never answers this; it only skips the build prompt."""
+        for refusal in refusals:
+            self.say(f"  refused   {refusal.package}: {refusal.reason}")
+        if proposals:
+            self.say("the request needs packages that are not on the allowlist:")
+        return [p.package for p in proposals if confirm_proposal(p, yes=False, err=self._err)]
+
     def destination(self, name: str) -> Path | None:
         return None
 
@@ -100,6 +111,12 @@ def _conclude(outcome: CreateOutcome, *, err: bool, json_output: bool) -> None:
     def say(message: str) -> None:
         typer.echo(message, err=err)
 
+    for proposal in outcome.addable:  # nobody could be asked: say what would unblock the request
+        typer.echo(
+            f"  addable   {proposal.package} ({proposal.component} {proposal.version}): "
+            f"gira-iso allow add {proposal.package} --base {proposal.base_version}",
+            err=True,
+        )
     if outcome.status is Status.MODEL_REJECTED:
         typer.echo(f"rejected: {outcome.reason}", err=True)
         raise typer.Exit(EXIT_REJECTED)
@@ -147,6 +164,8 @@ def _conclude(outcome: CreateOutcome, *, err: bool, json_output: bool) -> None:
             "verified": outcome.verified,
             "understood": [claim.model_dump() for claim in outcome.explanation.understood],
             "unsupported": [claim.model_dump() for claim in outcome.explanation.unsupported],
+            "added": list(outcome.added),
+            "addable": [asdict(proposal) for proposal in outcome.addable],
         }
         typer.echo(json.dumps(payload, indent=2))
     if outcome.verified is False:

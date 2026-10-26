@@ -64,7 +64,7 @@ def add(
             typer.echo(f"  refused   {name}: {verdict.reason}")
             refused = True
             continue
-        if not _approved(verdict, yes):
+        if not confirm_proposal(verdict, yes):
             typer.echo(f"  skipped   {name}")
             continue
         add_addition(_addition(verdict))
@@ -76,13 +76,15 @@ def add(
         raise typer.Exit(EXIT_REJECTED)
 
 
-def _approved(proposal: Proposal, yes: bool) -> bool:
+def confirm_proposal(proposal: Proposal, yes: bool = False, err: bool = False) -> bool:
+    """Show what the archive says and ask. The default answer is no."""
     typer.echo(
         f"  found     {proposal.package} {proposal.version} "
-        f"({proposal.component}, {proposal.section}) in ubuntu {proposal.base_version}"
+        f"({proposal.component}, {proposal.section}) in ubuntu {proposal.base_version}",
+        err=err,
     )
-    typer.echo(f"            {WARNING}")
-    return yes or typer.confirm(f"allow {proposal.package}?", default=False)
+    typer.echo(f"            {WARNING}", err=err)
+    return yes or typer.confirm(f"allow {proposal.package}?", default=False, err=err)
 
 
 def _addition(proposal: Proposal) -> Addition:

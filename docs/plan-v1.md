@@ -580,3 +580,22 @@ puede ofrecerse: rechaza nombre inválido, ya permitido, `never_add`, inexistent
 no publicado; `netcat-traditional` → existe en `universe` y pregunta. Prueba `pytest -m network` contra
 Launchpad, desactivada por defecto. 63 tests nuevos; 474 en total.
 
+**2026-10-26 — Paquetes agregados localmente, fase C: la IA traduce y el flujo ofrece.** Cuando una
+petición necesita un paquete real de Ubuntu que no está en la lista, `run_create` (paso 1b) reúne los
+candidatos —paquetes que el modelo puso en el spec y la política rechaza, y cosas que dijo no poder
+dar— y, para las segundas, una llamada extra al modelo (`nl/suggest.py`) traduce la palabra de la
+persona al nombre real ("node" → `nodejs`). El modelo solo devuelve nombres (máximo 3, validados con la
+regex de paquetes; cualquier fallo devuelve vacío y nunca bloquea). Cada nombre se verifica contra
+Launchpad por código y pasa por las reglas de `proposals.py`; la persona aprueba paquete por paquete
+(`Io.propose`, "no" por defecto). Lo aprobado se guarda con el hash de la petición y se **vuelve a
+interpretar una sola vez**, ya con el paquete en el catálogo; el costo de las dos interpretaciones se
+suma. Salvaguardas: `--yes` solo omite la confirmación de construir, nunca responde esta pregunta; sin
+nadie a quien preguntar (`--non-interactive`) no hay llamada de sugerencias, solo se consultan nombres
+con forma de paquete y el resultado lista `addable` (con el comando `gira-iso allow add …` en stderr y
+en `--json`); el modo estricto, una lista personalizada y los servicios quedan fuera; un archivo
+inalcanzable no detiene la petición. Lo que existe pero se retiene a propósito (`telnetd`,
+multiverse) se explica en una tabla "No se pueden agregar". La petición común, sin nada fuera de la lista,
+no consulta nada ni muestra indicador. Probado contra Launchpad real con un modelo simulado: `node` →
+`nodejs (universe/web)`; `opencode` no se ofrece; `telnetd` se rechaza sin red. La prueba con el modelo
+real queda pendiente de la clave. 45 tests nuevos; 519 en total.
+

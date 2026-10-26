@@ -107,3 +107,13 @@ def _no_real_preflight(monkeypatch, request):
     monkeypatch.setattr("gira_iso.workflow.create.ensure_environment", lambda: None)
     monkeypatch.setattr("gira_iso.workflow.create.ensure_space", lambda root, gb: None)
     monkeypatch.setattr("gira_iso.tui.app.check_environment", lambda: [])
+
+
+@pytest.fixture(autouse=True)
+def _no_real_archive(monkeypatch):
+    """Nothing in the suite may ask Launchpad (the one opt-in test does, via -m network).
+
+    The workflow calls `archive.lookup` through the module, so replacing it here leaves the names
+    imported by test_archive.py and cli/allow.py untouched.
+    """
+    monkeypatch.setattr("gira_iso.archive.lookup", lambda package, base_version, fetch=None: None)

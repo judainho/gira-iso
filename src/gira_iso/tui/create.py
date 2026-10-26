@@ -19,6 +19,7 @@ from gira_iso.nl.client import (
     LlmConfig,
     OpenAiCompatible,
 )
+from gira_iso.proposals import Proposal, Refusal
 from gira_iso.tui.bases import choose_base
 from gira_iso.tui.common import (
     ACCENT,
@@ -31,6 +32,7 @@ from gira_iso.tui.common import (
 from gira_iso.tui.views import (
     show_explanation,
     show_policy_table,
+    show_proposals,
     show_spec,
     show_violations,
     usage_line,
@@ -135,6 +137,19 @@ class _TuiIo:
         self.building = True
         section(console, "Construcción")
         return Decision(proceed=True, name=name, verify=verify)
+
+    def propose(self, proposals: list[Proposal], refusals: list[Refusal]) -> list[str]:
+        show_proposals(self._console, proposals, refusals)
+        return [
+            proposal.package
+            for proposal in proposals
+            if Confirm.ask(
+                f"¿Agregar [bold]{proposal.package}[/] a la lista permitida de este equipo "
+                f"(Ubuntu {proposal.base_version})?",
+                default=False,
+                console=self._console,
+            )
+        ]
 
     def destination(self, name: str) -> Path | None:
         default = remembered_directory(self._remembered.last_destination)

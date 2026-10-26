@@ -12,6 +12,7 @@ from rich.text import Text
 from gira_iso import __version__
 from gira_iso.nl.explain import Explanation
 from gira_iso.policy.evaluate import Verdict
+from gira_iso.proposals import WARNING, Proposal, Refusal
 from gira_iso.spec.canonical import spec_hash, to_canonical_dict
 from gira_iso.spec.models import Spec
 from gira_iso.tui.common import ACCENT
@@ -148,6 +149,41 @@ def show_menu(console: Console, compact: bool = False) -> None:
     for key, label in MENU:
         table.add_row(f"[bold {ACCENT}]{key}[/]", label)
     console.print(Panel(table, title="Menú", border_style="dim", padding=(1, 3)))
+
+
+def show_proposals(console: Console, proposals: list[Proposal], refusals: list[Refusal]) -> None:
+    """Packages that could join the allowlist, and the ones held back on purpose."""
+    if refusals:
+        table = Table(
+            title="No se pueden agregar",
+            title_justify="left",
+            border_style="red",
+            header_style="bold red",
+        )
+        table.add_column("Paquete")
+        table.add_column("Motivo")
+        for refusal in refusals:
+            table.add_row(refusal.package, refusal.reason)
+        console.print(table)
+    if proposals:
+        table = Table(
+            title="Paquetes reales de Ubuntu que no están en la lista permitida",
+            title_justify="left",
+            border_style="yellow",
+            header_style="bold yellow",
+        )
+        for column in ("Paquete", "Pediste", "Componente", "Versión", "Sección"):
+            table.add_column(column)
+        for proposal in proposals:
+            table.add_row(
+                proposal.package,
+                proposal.requested_as or "-",
+                proposal.component,
+                proposal.version,
+                proposal.section,
+            )
+        console.print(table)
+        console.print(f"[dim]{WARNING}[/]")
 
 
 def show_environment(console: Console, problems: list[Problem]) -> None:

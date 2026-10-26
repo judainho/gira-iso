@@ -169,6 +169,9 @@ class NoIo:
     def review(self, review):
         self.calls.append("review")
 
+    def propose(self, proposals, refusals):
+        return []
+
     def destination(self, name):
         return None
 

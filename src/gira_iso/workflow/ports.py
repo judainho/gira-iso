@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Protocol
 
 from gira_iso.nl.explain import Explanation
+from gira_iso.proposals import Proposal, Refusal
 from gira_iso.spec.models import Spec
 from gira_iso.workflow.events import Event
 
@@ -47,6 +48,14 @@ class Io(Protocol):
 
     def review(self, review: Review) -> Decision:
         """Show the interpreted spec and decide. Called once, just before building."""
+        ...
+
+    def propose(self, proposals: list[Proposal], refusals: list[Refusal]) -> list[str]:
+        """Show packages that could be added to the allowlist; return the names approved.
+
+        Only called when `interactive`. `refusals` are packages that exist but are held back on
+        purpose, shown so the person knows why they are not offered. Approval is never implied.
+        """
         ...
 
     def destination(self, name: str) -> Path | None:
