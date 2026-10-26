@@ -50,6 +50,7 @@ gira-iso create "a web server with nginx" --name web   # natural language (asks 
 gira-iso show web                                      # provenance recorded for an image
 gira-iso download web --to ~/Downloads                 # copies image + manifest, checksum verified
 gira-iso delete web                                    # asks first; --yes to skip
+gira-iso clean                                         # delete builds that never finished
 ```
 
 `create` runs the schema and policy checks before downloading or building anything, so a
@@ -81,7 +82,7 @@ image download), `130` interrupted with `Ctrl+C`.
 ## Documents
 
 - [`docs/plan-v1.md`](docs/plan-v1.md) — development plan, phases, acceptance gates and closed decisions.
-- [`docs/flujo-de-control.md`](docs/flujo-de-control.md) — control flow: who decides what, where it can stop, how errors propagate (with diagrams).
+- [`docs/flujo-de-control.md`](docs/flujo-de-control.md) — control flow: who decides what, where it can stop, how errors propagate, which controls exist and what is still open (with diagrams).
 
 ## Quick install
 

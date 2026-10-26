@@ -510,3 +510,12 @@ cambia; 10 minutos para `packer init`): al agotarse se termina el proceso, se ma
 20 s y se informa con `PackerError`. 16 tests nuevos, entre ellos uno con un proceso real detenido por
 el temporizador. Con esto se cierran C1 a C6; queda P4 (documento final).
 
+**2026-10-26 — Flujo de control, P4: documento final y cierre.** `docs/flujo-de-control.md` se reescribió
+al estado real: confianza, mapa de módulos con la regla de dependencias, el flujo de `run_create` con el
+preflight, la máquina de estados del menú, la tabla de errores y códigos (0, 1, 2, 3 y 130), el ciclo de
+vida de los artefactos, los controles C1 a C6 con su prueba, el cierre de los doce hallazgos y, aparte, lo
+que **no** está hecho. El backlog recoge lo pendiente: confirmar C1 con un build real (nuevo punto
+bloqueante), reintentos y reanudación, limpieza de la caché de bases y recetas para software fuera de apt.
+Balance del trabajo: 232 tests al empezar, 352 al terminar; `cli.py` y `tui.py` (1307 líneas) pasaron a
+dos paquetes sin módulos de más de 250 líneas.
+
