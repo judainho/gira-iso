@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 import yaml
@@ -29,10 +30,8 @@ from rich.text import Text
 
 from gira_iso import __version__, settings
 from gira_iso.bases import UserBaseError, builds_dir, list_user_bases, register_base
-from gira_iso.builder import packer
 from gira_iso.builder.base import BaseImageError, cache_dir, ensure_base_image
-from gira_iso.builder.build import BuildRejected, build_image
-from gira_iso.builder.catalog import scan_builds
+from gira_iso.builder.catalog import load_manifest, scan_builds
 from gira_iso.builder.export import (
     ExportError,
     ExportExists,
@@ -41,6 +40,7 @@ from gira_iso.builder.export import (
     export_image,
 )
 from gira_iso.builder.manifest import Manifest
+from gira_iso.errors import GiraError
 from gira_iso.naming import is_valid_image_name
 from gira_iso.nl.client import (
     DEFAULT_BASE_URL,
@@ -49,12 +49,13 @@ from gira_iso.nl.client import (
     OpenAiCompatible,
     check_credentials,
 )
-from gira_iso.nl.explain import Explanation, explain
-from gira_iso.nl.session import SessionResult, converse, policy_checker
-from gira_iso.policy.evaluate import Allowlist, load_allowlist
+from gira_iso.nl.explain import Explanation
+from gira_iso.policy.evaluate import Verdict, load_allowlist
 from gira_iso.spec.canonical import spec_hash, to_canonical_dict
-from gira_iso.spec.models import BaseImage, Spec
-from gira_iso.verify.verify import VerificationError, verify_build
+from gira_iso.spec.models import Spec
+from gira_iso.workflow.create import CreateOutcome, CreateRequest, Status, run_create
+from gira_iso.workflow.events import Built, Download, Event, LogLine, Step, Verified
+from gira_iso.workflow.ports import Decision, Review
 
 AUTHOR = "Manuel Judá Aliaga Aliaga"
 EMAIL = "maliagaa@pucp.edu.pe"
@@ -357,32 +358,6 @@ def _choose_base(console: Console) -> tuple[str, str]:
     return os_name, version
 
 
-def _interpret(
-    console: Console, config: LlmConfig, request: str, base: tuple[str, str], allowlist: Allowlist
-) -> SessionResult | None:
-    """Run the conversation; print why and return None when there is no spec to show."""
-
-    def answer(questions: list[str]) -> list[str]:
-        console.print("[yellow]El modelo necesita más detalle:[/]")
-        return [Prompt.ask(f"  {question}", console=console) for question in questions]
-
-    result = converse(
-        request,
-        OpenAiCompatible(config),
-        answer=answer,
-        context=f"Base image: {base[0]} {base[1]} (already chosen in the menu)",
-        check=policy_checker(allowlist, base),
-        busy=lambda: console.status("Interpretando tu petición con el modelo…", spinner="dots"),
-    )
-    if result.spec is not None:
-        return result
-    if result.reason is not None:
-        console.print(Panel(result.reason, title="Petición rechazada", border_style="red"))
-    else:
-        console.print(f"[red]✘ {result.error}[/]")
-    return None
-
-
 def _show_explanation(console: Console, explanation: Explanation) -> None:
     """What the model understood, and what it could not provide, in the user's terms."""
     if explanation.understood:
@@ -486,128 +461,123 @@ class DownloadBar:
         self._progress.stop()
 
 
-def create_image(console: Console, config: LlmConfig) -> None:
-    section(console, "Crear imagen")
-    os_name, version = _choose_base(console)
-    console.print("\n[bold]Describe la imagen que necesitas[/] [dim](español o inglés)[/]")
-    request = _ask_request(console)
-    if not request:
-        console.print("[yellow]No escribiste nada.[/]")
-        return
+class _TuiIo:
+    """Presents the workflow in the menu. It decides nothing about the order."""
 
-    allowlist = load_allowlist()
-    result = _interpret(console, config, request, (os_name, version), allowlist)
-    if result is None:
-        return
-    assert result.spec is not None and result.interpretation is not None
-    spec, usage, latency = result.spec, result.usage, result.latency_ms
-    # The base is the user's choice from the menu, not something the model decides.
-    spec = spec.model_copy(update={"base": BaseImage(os=os_name, version=version)})
-    explanation = explain(result.interpretation, spec, allowlist)
-    _show_explanation(console, explanation)
-    _show_spec(console, spec, _usage_line(usage, latency))
-    if result.violations:
-        _show_violations(console, result.violations)
-        console.print("[dim]No se construyó nada. Reformula la petición con lo permitido.[/]")
-        return
+    interactive = True
 
-    remembered = settings.load()
-    name = Prompt.ask(
-        "Nombre de la imagen", default=remembered.last_name or "mi-imagen", console=console
-    )
-    if not is_valid_image_name(name):
-        console.print("[red]✘ Nombre inválido: usa letras, dígitos, '.', '_' o '-'.[/]")
-        return
-    question = (
-        "¿Construir la imagen sin lo que no puedo incluir?"
-        if explanation.unsupported
-        else "¿Construir esta imagen?"
-    )
-    if not Confirm.ask(question, default=True, console=console):
-        return
-    verify_after = Confirm.ask(
-        "¿Arrancarla y verificarla al terminar? (más lento)", default=False, console=console
-    )
+    def __init__(self, console: Console) -> None:
+        self._console = console
+        self._bar = DownloadBar(console)
+        self._remembered = settings.load()
+        self.building = False  # True once the person confirmed; a Ctrl+C then interrupts a build
 
-    section(console, "Construcción")
-    bar = DownloadBar(console)
+    def close(self) -> None:
+        self._bar.stop()
 
-    def on_progress(message: str) -> None:
-        console.print(f"[bold {ACCENT}]▸[/] {message}")
-
-    def on_line(line: str) -> None:
-        # A Text, not markup: packer output is full of square brackets.
-        console.print(Text(f"  │ {line}", style="dim"), soft_wrap=True)
-
-    try:
-        result = build_image(
-            spec,
-            work_root=builds_dir(),
-            name=name,
-            progress=on_progress,
-            on_line=on_line,
-            on_download=bar,
-        )
-    except BuildRejected as rejected:
-        bar.stop()
-        table = Table(title="La política rechazó el spec", border_style="red")
-        table.add_column("Dónde")
-        table.add_column("Código")
-        table.add_column("Motivo")
-        for violation in rejected.verdict.violations:
-            table.add_row(violation.location, violation.code, violation.message)
-        console.print(table)
-        console.print("[dim]No se descargó ni construyó nada.[/]")
-        return
-    except KeyboardInterrupt:
-        bar.stop()
-        console.print("\n[yellow]Construcción interrumpida; la imagen quedó incompleta.[/]")
-        return
-    except (BaseImageError, packer.PackerError, RuntimeError) as exc:
-        bar.stop()
-        console.print(Panel(str(exc), title="Falló la construcción", border_style="red"))
-        return
-    finally:
-        bar.stop()
-
-    console.print("[green]✔ Imagen construida[/]")
-
-    if verify_after:
-        section(console, "Verificación")
-        try:
-            with console.status("Arrancando la VM y ejecutando goss…", spinner="dots"):
-                verification = verify_build(result.build_dir)
-        except VerificationError as exc:
-            console.print(f"[red]✘ {exc}[/]")
-        else:
-            for check in verification.checks:
+    def emit(self, event: Event) -> None:
+        console = self._console
+        if isinstance(event, Step):
+            console.print(f"[bold {ACCENT}]▸[/] {event.message}")
+        elif isinstance(event, LogLine):
+            # A Text, not markup: packer output is full of square brackets.
+            console.print(Text(f"  │ {event.text}", style="dim"), soft_wrap=True)
+        elif isinstance(event, Download):
+            self._bar(event.done, event.total)
+        elif isinstance(event, Built):
+            self._bar.stop()
+            console.print("[green]✔ Imagen construida[/]")
+        elif isinstance(event, Verified):
+            for check in event.result.checks:
                 mark = "[green]✔[/]" if check.passed else "[red]✘[/]"
                 console.print(f"  {mark} {check.name}  [dim]{check.detail}[/]")
             console.print(
                 "[green]Verificación superada[/]"
-                if verification.passed
+                if event.result.passed
                 else "[red]La verificación falló[/]"
             )
 
-    destination = Path(
-        Prompt.ask(
-            "¿Dónde guardo la imagen?",
-            default=remembered.last_destination or str(default_downloads()),
+    def answer(self, questions: list[str]) -> list[str]:
+        self._console.print("[yellow]El modelo necesita más detalle:[/]")
+        return [Prompt.ask(f"  {question}", console=self._console) for question in questions]
+
+    def busy(self, message: str) -> AbstractContextManager[object]:
+        return self._console.status(message, spinner="dots")
+
+    def review(self, review: Review) -> Decision:
+        console = self._console
+        _show_explanation(console, review.explanation)
+        _show_spec(console, review.spec, _usage_line(review.usage, review.latency_ms))
+
+        name = Prompt.ask(
+            "Nombre de la imagen",
+            default=self._remembered.last_name or "mi-imagen",
             console=console,
         )
-    ).expanduser()
-    manifest_path = result.manifest
-    manifest = Manifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
-    try:
-        image_path, manifest_copy = export_image(
-            manifest, manifest_path, destination, name, force=False
+        if not is_valid_image_name(name):
+            console.print("[red]✘ Nombre inválido: usa letras, dígitos, '.', '_' o '-'.[/]")
+            return Decision(proceed=False)
+        question = (
+            "¿Construir la imagen sin lo que no puedo incluir?"
+            if review.explanation.unsupported
+            else "¿Construir esta imagen?"
         )
-    except ExportError as exc:
-        console.print(f"[red]✘ {exc}[/]")
-        console.print(f"La imagen sigue en: {result.image}")
+        if not Confirm.ask(question, default=True, console=console):
+            return Decision(proceed=False)
+        verify = Confirm.ask(
+            "¿Arrancarla y verificarla al terminar? (más lento)", default=False, console=console
+        )
+        self.building = True
+        section(console, "Construcción")
+        return Decision(proceed=True, name=name, verify=verify)
+
+    def destination(self, name: str) -> Path | None:
+        default = self._remembered.last_destination or str(default_downloads())
+        chosen = Prompt.ask("¿Dónde guardo la imagen?", default=default, console=self._console)
+        return Path(chosen).expanduser()
+
+
+def _show_policy_table(console: Console, verdict: Verdict) -> None:
+    table = Table(title="La política rechazó el spec", border_style="red")
+    table.add_column("Dónde")
+    table.add_column("Código")
+    table.add_column("Motivo")
+    for violation in verdict.violations:
+        table.add_row(violation.location, violation.code, violation.message)
+    console.print(table)
+
+
+def _show_outcome(console: Console, outcome: CreateOutcome) -> None:
+    """Everything that happens after the workflow returns."""
+    if outcome.status is Status.MODEL_REJECTED:
+        console.print(Panel(outcome.reason or "", title="Petición rechazada", border_style="red"))
+    elif outcome.status in (Status.INTERPRET_ERROR, Status.NEEDS_DETAIL):
+        console.print(f"[red]✘ {outcome.error or 'El modelo no pudo interpretar la petición.'}[/]")
+    elif outcome.status is Status.POLICY_REJECTED and outcome.verdict is not None:
+        _show_policy_table(console, outcome.verdict)
+        console.print("[dim]No se descargó ni construyó nada.[/]")
+    elif outcome.status is Status.POLICY_REJECTED:
+        assert outcome.spec is not None
+        _show_explanation(console, outcome.explanation)
+        _show_spec(console, outcome.spec, _usage_line(outcome.usage, outcome.latency_ms))
+        _show_violations(console, outcome.violations)
+        console.print("[dim]No se construyó nada. Reformula la petición con lo permitido.[/]")
+    elif outcome.status is Status.BUILT:
+        _show_built(console, outcome)
+
+
+def _show_built(console: Console, outcome: CreateOutcome) -> None:
+    assert outcome.build is not None and outcome.name is not None
+    if outcome.exported is None:
+        console.print(f"[red]✘ {outcome.export_error}[/]")
+        console.print(f"La imagen sigue en: {outcome.build.image}")
         return
 
-    settings.save(settings.Settings(last_name=name, last_destination=str(destination)))
+    image_path, manifest_copy = outcome.exported
+    manifest, _ = load_manifest(outcome.build.manifest)
+    settings.save(
+        settings.Settings(last_name=outcome.name, last_destination=str(image_path.parent))
+    )
 
     # Plain lines, not a box: a long path inside a border gets cut in the middle.
     console.print()
@@ -619,6 +589,37 @@ def create_image(console: Console, config: LlmConfig) -> None:
         ("Tamaño  ", _fmt_size(image_path.stat().st_size), ""),
     ):
         console.print(Text.assemble((f"{label}  ", "dim"), (str(value), style)), soft_wrap=True)
+
+
+def create_image(console: Console, config: LlmConfig) -> None:
+    section(console, "Crear imagen")
+    os_name, version = _choose_base(console)
+    console.print("\n[bold]Describe la imagen que necesitas[/] [dim](español o inglés)[/]")
+    request = _ask_request(console)
+    if not request:
+        console.print("[yellow]No escribiste nada.[/]")
+        return
+
+    io = _TuiIo(console)
+    try:
+        outcome = run_create(
+            CreateRequest(
+                text=request, completer=OpenAiCompatible(config), base=(os_name, version)
+            ),
+            io,
+        )
+    except KeyboardInterrupt:
+        if not io.building:
+            raise  # still choosing or interpreting: the menu just cancels the action
+        console.print("\n[yellow]Construcción interrumpida; la imagen quedó incompleta.[/]")
+        return
+    except (GiraError, OSError) as exc:
+        console.print(Panel(str(exc), title="Falló la construcción", border_style="red"))
+        return
+    finally:
+        io.close()
+
+    _show_outcome(console, outcome)
 
 
 MENU = (

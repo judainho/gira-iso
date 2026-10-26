@@ -1,6 +1,6 @@
 # Flujo de control de gira-iso
 
-Estado: **P0 y P1 cerradas**. Las secciones 1 a 8 describen el código tal como estaba en P0 (commit `60e43e0`); donde P1 lo cambió, se indica. Este documento responde: *¿quién decide qué, en qué orden, dónde se puede parar todo y qué pasa cuando algo
+Estado: **P0, P1 y primera mitad de P2 cerradas**. Las secciones 1 a 8 describen el código tal como estaba en P0 (commit `60e43e0`); donde P1 lo cambió, se indica. Este documento responde: *¿quién decide qué, en qué orden, dónde se puede parar todo y qué pasa cuando algo
 falla?* La sección 9 resume los problemas encontrados; el plan para resolverlos está en la sección 10.
 Cuando cada fase se complete, las secciones se actualizan al estado nuevo (ver sección 10).
 
@@ -141,6 +141,59 @@ sequenceDiagram
 Puntos donde la persona puede detener el flujo: elegir base, petición vacía, preguntas del modelo (no
 responder no es posible: hay que contestar o `Ctrl+C`), nombre inválido, "¿construir?", y `Ctrl+C` en
 cualquier momento (vuelve al menú).
+
+## 3b. El orquestador (desde P2)
+
+El orden de "crear" vive en **un solo lugar**: `workflow/create.py::run_create`. El menú y el CLI
+ya no deciden nada; implementan el puerto `Io` (`workflow/ports.py`) y reaccionan a eventos tipados
+(`workflow/events.py`: `Step`, `Download`, `LogLine`, `Built`, `Verified`).
+
+```mermaid
+flowchart TD
+    R[CreateRequest<br/>texto o spec] --> T{¿lenguaje natural?}
+    T -- sí --> CV[converse con política<br/>io.answer, io.busy]
+    CV -- el modelo rechaza --> S1([MODEL_REJECTED])
+    CV -- pregunta y nadie responde --> S2([NEEDS_DETAIL])
+    CV -- no produjo JSON válido --> S3([INTERPRET_ERROR])
+    CV -- spec con violaciones --> S4([POLICY_REJECTED<br/>sin construir])
+    CV -- spec --> EX[explain: verificar lo que dice el modelo]
+    T -- no --> B0[base elegida por la persona]
+    EX --> B0
+    B0 --> RV{"¿request.review?"}
+    RV -- sí --> IO[io.review<br/>nombre, confirmar, verificar]
+    IO -- no procede --> S5([DECLINED])
+    IO -- procede --> BU
+    RV -- no --> BU[build_image<br/>vuelve a evaluar la política]
+    BU -- BuildRejected --> S6([POLICY_REJECTED<br/>con verdict])
+    BU -- GiraError / Ctrl+C --> PR[[se propaga al front end]]
+    BU -- ok --> VF{"¿verificar?"}
+    VF -- sí --> V[verify_build<br/>io.busy, evento Verified]
+    VF -- no --> DS
+    V --> DS{"io.destination"}
+    DS -- ruta --> EXP[export_image]
+    DS -- None --> OK
+    EXP --> OK([BUILT])
+
+    classDef stop fill:#fde2e2,stroke:#c0392b;
+    classDef ok fill:#e2f0e2,stroke:#27ae60;
+    class S1,S2,S3,S4,S5,S6 stop;
+    class OK ok;
+```
+
+Reglas del orquestador:
+
+- Un resultado normal (rechazo, "no", faltan datos) es un `CreateOutcome` con su `Status`. Un fallo
+  inesperado es una `GiraError` y se **propaga**: el front end sabe cómo mostrarla (el CLI con su
+  código de salida, el menú con un panel).
+- `Ctrl+C` también se propaga; después de él no se verifica ni se exporta.
+- La base la elige la persona (`request.base`); lo que el modelo escriba en `base` se reemplaza.
+- `workflow/` no importa `typer`, `rich`, `cli` ni `tui` (hay un test que lo comprueba).
+
+Qué cambia en cada front end: el **CLI** (`cli._CliIo`) escribe a stderr/stdout y pregunta con
+`typer.prompt`; el **menú** (`tui._TuiIo`) usa tablas y paneles de `rich`. Los dos reciben el mismo
+`Review`, así que el orden "mostrar → decidir → construir" ya no puede divergir.
+
+---
 
 ## 4. Flujo "crear" por el CLI (`cli.create`)
 
@@ -297,11 +350,11 @@ Verificados leyendo el código; H7 requiere confirmarse con un build real.
 
 | # | Hallazgo | Gravedad | Estado |
 |---|---|---|---|
-| H1 | El flujo "crear" está duplicado en `cli.create` y `tui.create_image`; cada uno decide el orden | alta (mantenimiento) | pendiente (P2) |
+| H1 | El flujo "crear" está duplicado en `cli.create` y `tui.create_image`; cada uno decide el orden | alta (mantenimiento) | **resuelto en P2**: `workflow/create.py` |
 | H2 | 10 clases de error sin raíz propia; el código de salida lo elige cada comando | media | **resuelto en P1**: `errors.GiraError` con `exit_code` |
 | H3 | Dos reglas de nombre de imagen (63 vs 64 caracteres) | baja | **resuelto en P1**: `naming.py` (64 caracteres) |
-| H4 | Progreso por tres callbacks sueltos en vez de eventos tipados | media | pendiente (P2) |
-| H5 | `cli.py` (629) y `tui.py` (678) mezclan argumentos, presentación, flujo y comandos avanzados | media | pendiente (P2) |
+| H4 | Progreso por tres callbacks sueltos en vez de eventos tipados | media | **resuelto en P2**: `workflow/events.py` (los callbacks de `build_image` se conservan por dentro) |
+| H5 | `cli.py` (629) y `tui.py` (678) mezclan argumentos, presentación, flujo y comandos avanzados | media | parcial: el flujo ya salió de ambos; falta dividirlos en paquetes (P2, segunda mitad) |
 | H6 | Lectura de manifests triplicada (`cli._load_manifest`, `verify.load_manifest`, `export.scan_builds`) | baja | **resuelto en P1**: `builder/catalog.py` |
 | H7 | El usuario de build `packer` (sudo NOPASSWD + clave pública del build) se crea por cloud-init y la limpieza no lo elimina; la clave privada queda en el directorio de build. Si se confirma, **toda imagen producida acepta esa clave** | **alta (seguridad)** | pendiente (P3, C1) |
 | H8 | Un build fallido o cancelado deja el directorio con la clave privada; no hay forma de limpiar huérfanos | alta | pendiente (P3, C2) |

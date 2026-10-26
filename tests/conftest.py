@@ -56,3 +56,44 @@ import pytest  # noqa: E402
 def _isolated_home(tmp_path_factory, monkeypatch):
     """Registered bases live under GIRA_ISO_HOME; tests must never see the real ones."""
     monkeypatch.setenv("GIRA_ISO_HOME", str(tmp_path_factory.mktemp("gira-home")))
+
+
+@pytest.fixture
+def make_build():
+    """Create a fake build directory with a valid manifest and artifact; returns a BuildResult."""
+    from gira_iso.builder.build import BuildResult
+    from gira_iso.builder.manifest import (
+        Artifact,
+        BaseRef,
+        BuilderInfo,
+        Manifest,
+        PolicyRef,
+        file_sha256,
+    )
+
+    def factory(root, *, name: str = "web", content: bytes = b"qcow2-bytes") -> BuildResult:
+        build_dir = root / "20260101T000000Z-abcdef123456"
+        image = build_dir / "image" / "gira-iso-ubuntu-24.04.qcow2"
+        image.parent.mkdir(parents=True)
+        image.write_bytes(content)
+        Manifest(
+            name=name,
+            spec_sha256="0" * 64,
+            spec={"spec_version": "0"},
+            base=BaseRef(os="ubuntu", version="24.04", url="https://x/y.img", sha256="1" * 64),
+            policy=PolicyRef(source="test", sha256="2" * 64),
+            builder=BuilderInfo(
+                packer_version="1.16.2", plugin_version="1.1.7", template_sha256="3" * 64
+            ),
+            packages=["nginx"],
+            services=["nginx"],
+            artifact=Artifact(
+                file=image.name,
+                sha256=file_sha256(image),
+                size_bytes=len(content),
+                virtual_size_bytes=10 * 1024**3,
+            ),
+        ).write(build_dir)
+        return BuildResult(build_dir=build_dir, image=image, manifest=build_dir / "manifest.json")
+
+    return factory

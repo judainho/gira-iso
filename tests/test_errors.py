@@ -65,12 +65,11 @@ def test_each_error_carries_its_exit_code(error: GiraError, code: int) -> None:
 
 
 def _create_with(monkeypatch, tmp_path: Path, error: BaseException):
-    import gira_iso.cli as cli
 
     def explode(spec, **kwargs):
         raise error
 
-    monkeypatch.setattr(cli, "build_image", explode)
+    monkeypatch.setattr("gira_iso.workflow.create.build_image", explode)
     return runner.invoke(
         app,
         ["create", "examples/nginx-web.yaml", "--name", "web", "--work-root", str(tmp_path)],
@@ -98,18 +97,17 @@ def test_create_turns_a_build_failure_into_a_message_and_a_code(
 
 
 def test_a_failed_verification_is_a_message_not_a_traceback(monkeypatch, tmp_path: Path) -> None:
-    import gira_iso.cli as cli
     from gira_iso.builder.build import BuildResult
 
     image = tmp_path / "web.qcow2"
     image.write_bytes(b"x")
     fake = BuildResult(build_dir=tmp_path, image=image, manifest=tmp_path / "manifest.json")
-    monkeypatch.setattr(cli, "build_image", lambda spec, **kwargs: fake)
+    monkeypatch.setattr("gira_iso.workflow.create.build_image", lambda spec, **kwargs: fake)
 
     def broken(build_dir):
         raise VerificationError("manifest points at nowhere")
 
-    monkeypatch.setattr(cli, "verify_build", broken)
+    monkeypatch.setattr("gira_iso.workflow.create.verify_build", broken)
 
     result = runner.invoke(
         app,
@@ -129,12 +127,11 @@ def test_a_failed_verification_is_a_message_not_a_traceback(monkeypatch, tmp_pat
 
 
 def test_the_hidden_build_command_is_guarded_too(monkeypatch, tmp_path: Path) -> None:
-    import gira_iso.cli as cli
 
     def explode(spec, **kwargs):
         raise PackerError("packer exited with 1")
 
-    monkeypatch.setattr(cli, "build_image", explode)
+    monkeypatch.setattr("gira_iso.workflow.create.build_image", explode)
 
     result = runner.invoke(app, ["build", "examples/nginx-web.yaml", "--work-root", str(tmp_path)])
 

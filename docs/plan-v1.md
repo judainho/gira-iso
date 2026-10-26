@@ -446,3 +446,12 @@ Packer, de checksum de la base o de verificación ya no termina en traceback (H1
 única regla de nombres (64 caracteres; el menú aceptaba 63) y `builder/catalog.py` el único lugar que
 lee manifests y resuelve referencias (antes triplicado). 26 tests nuevos; 258 en total.
 
+**2026-10-26 — Flujo de control, P2a: un solo orquestador.** `workflow/create.py::run_create` fija el
+orden de "crear" (interpretar con política, explicar, rechazar, revisar, construir, verificar,
+exportar) y devuelve un `CreateOutcome` tipado. El menú (`tui._TuiIo`) y el CLI (`cli._CliIo`)
+implementan el puerto `Io` y reaccionan a eventos (`Step`, `Download`, `LogLine`, `Built`,
+`Verified`); ya no deciden el orden. El comando oculto `build` también pasa por el orquestador.
+`workflow/` no importa `typer`, `rich`, `cli` ni `tui`. 23 tests nuevos del orquestador con un
+front end falso; 281 en total. Los tests de CLI y menú ahora parchean
+`gira_iso.workflow.create.build_image`. Queda para P2b dividir `cli.py` y `tui.py` en paquetes.
+

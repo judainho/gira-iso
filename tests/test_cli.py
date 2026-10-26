@@ -176,9 +176,7 @@ def test_create_records_the_name(monkeypatch, tmp_path: Path) -> None:
         manifest=build_dir / "manifest.json",
     )
 
-    import gira_iso.cli as cli
-
-    monkeypatch.setattr(cli, "build_image", lambda spec, **kwargs: fake)
+    monkeypatch.setattr("gira_iso.workflow.create.build_image", lambda spec, **kwargs: fake)
 
     spec = tmp_path / "web.yaml"
     spec.write_text(Path("examples/nginx-web.yaml").read_text(encoding="utf-8"), encoding="utf-8")
@@ -220,7 +218,9 @@ def _nl_fixture(monkeypatch, tmp_path: Path, *replies: str):
         manifest=build_dir / "manifest.json",
     )
     built: list = []
-    monkeypatch.setattr(cli, "build_image", lambda spec, **kwargs: built.append(spec) or fake)
+    monkeypatch.setattr(
+        "gira_iso.workflow.create.build_image", lambda spec, **kwargs: built.append(spec) or fake
+    )
     monkeypatch.setattr(cli, "OpenAiCompatible", lambda config: FakeCompleter(*replies))
     monkeypatch.delenv("GIRA_ISO_LLM_API_KEY", raising=False)
     return built
@@ -295,7 +295,7 @@ def _tui_fixture(monkeypatch, tmp_path: Path, *replies: str) -> list:
         kwargs["on_line"]("==> qemu: [packer] line with [brackets]")
         return fake
 
-    monkeypatch.setattr(tui, "build_image", fake_build)
+    monkeypatch.setattr("gira_iso.workflow.create.build_image", fake_build)
     monkeypatch.setattr(tui, "OpenAiCompatible", lambda config: FakeCompleter(*replies))
     monkeypatch.setattr(tui, "check_credentials", lambda config: CredentialCheck("ok"))
     monkeypatch.delenv("GIRA_ISO_LLM_API_KEY", raising=False)
@@ -668,7 +668,7 @@ def _automation_fixture(monkeypatch, tmp_path: Path, *replies: str) -> list:
         kwargs["progress"]("Validando el spec")
         return fake
 
-    monkeypatch.setattr(cli, "build_image", fake_build)
+    monkeypatch.setattr("gira_iso.workflow.create.build_image", fake_build)
     monkeypatch.setattr(cli, "OpenAiCompatible", lambda config: FakeCompleter(*replies))
     monkeypatch.delenv("GIRA_ISO_LLM_API_KEY", raising=False)
     return built

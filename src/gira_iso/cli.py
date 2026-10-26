@@ -15,6 +15,7 @@ import functools
 import json
 import os
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +25,6 @@ from pydantic import ValidationError
 
 from gira_iso import __version__
 from gira_iso.bases import builds_dir
-from gira_iso.builder.build import BuildRejected, build_image
 from gira_iso.builder.catalog import display_name, resolve_image, scan_builds
 from gira_iso.builder.export import delete_build, describe, export_image
 from gira_iso.builder.manifest import Manifest
@@ -46,14 +46,16 @@ from gira_iso.nl.client import (
     OpenAiCompatible,
     config_from_env,
 )
-from gira_iso.nl.explain import Explanation, explain
-from gira_iso.nl.session import converse, policy_checker
+from gira_iso.nl.explain import Explanation
 from gira_iso.policy.evaluate import ENV_VAR, Verdict, allowlist_digest, load_allowlist
 from gira_iso.policy.evaluate import evaluate as evaluate_policy
 from gira_iso.push.openstack import upload_image
 from gira_iso.spec.canonical import spec_hash, to_canonical_dict
 from gira_iso.spec.models import Spec
 from gira_iso.verify.verify import VerifyResult, verify_build
+from gira_iso.workflow.create import CreateOutcome, CreateRequest, Status, run_create
+from gira_iso.workflow.events import Event, LogLine, Step
+from gira_iso.workflow.ports import Decision, Review
 
 WORK_ROOT_HELP = "Where builds are written (default: <gira-iso home>/builds)"
 
@@ -215,41 +217,104 @@ def _llm_config(model: str | None, interactive: bool) -> LlmConfig:
     return LlmConfig(base_url=base_url, api_key=api_key, model=chosen_model)
 
 
-def _spec_from_request(
-    request: str, model: str | None, interactive: bool
-) -> tuple[Spec, Explanation]:
-    """Ask the model; follow-up questions are answered at the prompt when someone can."""
+class _CliIo:
+    """Presents the workflow on the command line. It decides nothing about the order."""
 
-    def answer(questions: list[str]) -> list[str]:
+    def __init__(self, *, interactive: bool, err: bool, preview: bool) -> None:
+        self.interactive = interactive
+        self._err = err
+        self._preview = preview  # show the spec and ask before building
+
+    def say(self, message: str) -> None:
+        typer.echo(message, err=self._err)
+
+    def emit(self, event: Event) -> None:
+        if isinstance(event, Step):
+            self.say(f"> {event.message}")
+        elif isinstance(event, LogLine):
+            typer.echo(event.text, err=True)
+
+    def answer(self, questions: list[str]) -> list[str]:
         typer.echo("the model needs more detail:", err=True)
         return [typer.prompt(f"  {question}") for question in questions]
 
-    allowlist = load_allowlist()
-    result = converse(
-        request,
-        OpenAiCompatible(_llm_config(model, interactive)),
-        answer=answer if interactive else None,
-        check=policy_checker(allowlist),
-    )
-    if result.spec is not None and result.interpretation is not None:
-        explanation = explain(result.interpretation, result.spec, allowlist)
-        if result.violations:
-            _print_explanation(explanation)
-            typer.echo("the policy rejects the interpreted spec:", err=True)
-            for line in result.violations:
-                typer.echo(f"  {line}", err=True)
-            raise typer.Exit(EXIT_REJECTED)
-        return result.spec, explanation
-    if result.reason is not None:
-        typer.echo(f"rejected: {result.reason}", err=True)
+    def busy(self, message: str) -> AbstractContextManager[object]:
+        return nullcontext()
+
+    def review(self, review: Review) -> Decision:
+        if review.from_model:
+            self.say("interpreted request as:")
+            _print_explanation(review.explanation)
+        self.say(f"  name      {review.name}")
+        self.say(f"  hash      {spec_hash(review.spec)}")
+        _summarise(review.spec, err=self._err)
+        if review.from_model and self._preview:
+            self.say(yaml.safe_dump(to_canonical_dict(review.spec), sort_keys=False))
+            if not typer.confirm("build this image?", default=True, err=self._err):
+                return Decision(proceed=False)
+        return Decision(proceed=True, name=review.name, verify=review.verify)
+
+    def destination(self, name: str) -> Path | None:
+        return None
+
+
+def _conclude(outcome: CreateOutcome, *, err: bool, json_output: bool) -> None:
+    """Turn the workflow's outcome into output and an exit code."""
+
+    def say(message: str) -> None:
+        typer.echo(message, err=err)
+
+    if outcome.status is Status.MODEL_REJECTED:
+        typer.echo(f"rejected: {outcome.reason}", err=True)
         raise typer.Exit(EXIT_REJECTED)
-    if result.questions:
+    if outcome.status is Status.NEEDS_DETAIL:
         typer.echo("the request needs more detail (--non-interactive cannot ask):", err=True)
-        for question in result.questions:
+        for question in outcome.questions:
             typer.echo(f"  - {question}", err=True)
         raise typer.Exit(EXIT_REJECTED)
-    typer.echo(f"error: {result.error}", err=True)
-    raise typer.Exit(EXIT_INVALID)
+    if outcome.status is Status.INTERPRET_ERROR:
+        typer.echo(f"error: {outcome.error}", err=True)
+        raise typer.Exit(EXIT_INVALID)
+    if outcome.status is Status.POLICY_REJECTED:
+        if outcome.verdict is not None:
+            _report(outcome.verdict, err=True)
+            typer.echo("nothing was downloaded or built", err=True)
+        else:
+            _print_explanation(outcome.explanation)
+            typer.echo("the policy rejects the interpreted spec:", err=True)
+            for line in outcome.violations:
+                typer.echo(f"  {line}", err=True)
+        raise typer.Exit(EXIT_REJECTED)
+    if outcome.status is Status.DECLINED:
+        raise typer.Exit(EXIT_OK)
+
+    build = outcome.build
+    assert build is not None and outcome.spec is not None
+    say(f"  build     {build.build_dir}")
+    say(f"  image     {build.image} ({build.image.stat().st_size} bytes)")
+    say(f"  manifest  {build.manifest}")
+
+    if outcome.verification is not None:
+        say("verify:")
+        _print_checks(outcome.verification, err=err)
+
+    if json_output:
+        manifest = Manifest.model_validate_json(build.manifest.read_text(encoding="utf-8"))
+        payload = {
+            "name": outcome.name,
+            "image": str(build.image),
+            "manifest": str(build.manifest),
+            "build_dir": str(build.build_dir),
+            "sha256": manifest.artifact.sha256,
+            "base": f"{manifest.base.os} {manifest.base.version}",
+            "spec_hash": spec_hash(outcome.spec),
+            "verified": outcome.verified,
+            "understood": [claim.model_dump() for claim in outcome.explanation.understood],
+            "unsupported": [claim.model_dump() for claim in outcome.explanation.unsupported],
+        }
+        typer.echo(json.dumps(payload, indent=2))
+    if outcome.verified is False:
+        raise typer.Exit(EXIT_REJECTED)
 
 
 def _print_explanation(explanation: Explanation) -> None:
@@ -297,72 +362,27 @@ def create(
     err = json_output
     interactive = not non_interactive
 
-    def say(message: str) -> None:
-        typer.echo(message, err=err)
-
-    from_file = _is_spec_file(source)
-    explanation = Explanation()
-    if from_file:
+    if _is_spec_file(source):
         parsed = _load_spec(Path(source))
         chosen = checked_name(name or Path(source).stem)
-        say(f"spec: {source}")
+        typer.echo(f"spec: {source}", err=err)
+        request = CreateRequest(
+            spec=parsed, name=chosen, verify=verify, work_root=work_root, review=True
+        )
     else:
         if name is None:
             typer.echo("error: --name is required with a natural-language request", err=True)
             raise typer.Exit(EXIT_INVALID)
-        chosen = checked_name(name)
-        parsed, explanation = _spec_from_request(source, model, interactive)
-        say("interpreted request as:")
-        _print_explanation(explanation)
-    say(f"  name      {chosen}")
-    say(f"  hash      {spec_hash(parsed)}")
-    _summarise(parsed, err=err)
-
-    if not from_file and not yes and interactive:
-        say(yaml.safe_dump(to_canonical_dict(parsed), sort_keys=False))
-        if not typer.confirm("build this image?", default=True, err=err):
-            raise typer.Exit(EXIT_OK)
-
-    try:
-        result = build_image(
-            parsed,
+        request = CreateRequest(
+            text=source,
+            completer=OpenAiCompatible(_llm_config(model, interactive)),
+            name=checked_name(name),
+            verify=verify,
             work_root=work_root,
-            name=chosen,
-            progress=lambda message: say(f"> {message}"),
         )
-    except BuildRejected as rejected:
-        _report(rejected.verdict, err=True)
-        typer.echo("nothing was downloaded or built", err=True)
-        raise typer.Exit(EXIT_REJECTED) from None
 
-    say(f"  build     {result.build_dir}")
-    say(f"  image     {result.image} ({result.image.stat().st_size} bytes)")
-    say(f"  manifest  {result.manifest}")
-
-    verified: bool | None = None
-    if verify:
-        say("verify:")
-        verification = verify_build(result.build_dir)
-        _print_checks(verification, err=err)
-        verified = verification.passed
-
-    if json_output:
-        manifest = Manifest.model_validate_json(result.manifest.read_text(encoding="utf-8"))
-        payload = {
-            "name": chosen,
-            "image": str(result.image),
-            "manifest": str(result.manifest),
-            "build_dir": str(result.build_dir),
-            "sha256": manifest.artifact.sha256,
-            "base": f"{manifest.base.os} {manifest.base.version}",
-            "spec_hash": spec_hash(parsed),
-            "verified": verified,
-            "understood": [claim.model_dump() for claim in explanation.understood],
-            "unsupported": [claim.model_dump() for claim in explanation.unsupported],
-        }
-        typer.echo(json.dumps(payload, indent=2))
-    if verified is False:
-        raise typer.Exit(EXIT_REJECTED)
+    io = _CliIo(interactive=interactive, err=err, preview=not yes and interactive)
+    _conclude(run_create(request, io), err=err, json_output=json_output)
 
 
 @app.command()
@@ -473,16 +493,9 @@ def build(
     typer.echo(f"  hash      {spec_hash(parsed)}")
     _summarise(parsed)
 
-    try:
-        result = build_image(parsed, work_root=work_root)
-    except BuildRejected as rejected:
-        _report(rejected.verdict)
-        typer.echo("nothing was downloaded or built", err=True)
-        raise typer.Exit(EXIT_REJECTED) from None
-
-    typer.echo(f"  build     {result.build_dir}")
-    typer.echo(f"  image     {result.image} ({result.image.stat().st_size} bytes)")
-    typer.echo(f"  manifest  {result.manifest}")
+    request = CreateRequest(spec=parsed, work_root=work_root, review=False)
+    outcome = run_create(request, _CliIo(interactive=False, err=False, preview=False))
+    _conclude(outcome, err=False, json_output=False)
 
 
 @app.command(hidden=True)
