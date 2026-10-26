@@ -20,7 +20,14 @@ from gira_iso.nl.client import (
     OpenAiCompatible,
 )
 from gira_iso.tui.bases import choose_base
-from gira_iso.tui.common import ACCENT, DownloadBar, default_downloads, fmt_size, section
+from gira_iso.tui.common import (
+    ACCENT,
+    DownloadBar,
+    ask_directory,
+    fmt_size,
+    remembered_directory,
+    section,
+)
 from gira_iso.tui.views import (
     show_explanation,
     show_policy_table,
@@ -77,7 +84,9 @@ class _TuiIo:
             console.print(f"[bold {ACCENT}]▸[/] {event.message}")
         elif isinstance(event, LogLine):
             # A Text, not markup: packer output is full of square brackets.
-            console.print(Text(f"  │ {event.text}", style="dim"), soft_wrap=True)
+            # One line each: Packer's xtrace output has lines of thousands of characters. The full
+            # text is in <build>/logs/packer-build.log.
+            console.print(Text(f"  │ {event.text}", style="dim"), no_wrap=True, overflow="ellipsis")
         elif isinstance(event, Download):
             self._bar(event.done, event.total)
         elif isinstance(event, Built):
@@ -128,9 +137,8 @@ class _TuiIo:
         return Decision(proceed=True, name=name, verify=verify)
 
     def destination(self, name: str) -> Path | None:
-        default = self._remembered.last_destination or str(default_downloads())
-        chosen = Prompt.ask("¿Dónde guardo la imagen?", default=default, console=self._console)
-        return Path(chosen).expanduser()
+        default = remembered_directory(self._remembered.last_destination)
+        return ask_directory(self._console, "¿En qué carpeta guardo la imagen?", default)
 
 
 def _show_outcome(console: Console, outcome: CreateOutcome) -> None:

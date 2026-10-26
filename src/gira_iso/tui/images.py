@@ -23,7 +23,7 @@ from gira_iso.builder.export import (
 )
 from gira_iso.builder.manifest import Manifest
 from gira_iso.naming import is_valid_image_name
-from gira_iso.tui.common import ACCENT, default_downloads, section
+from gira_iso.tui.common import ACCENT, ask_directory, remembered_directory, section
 
 
 def list_images(console: Console) -> None:
@@ -109,13 +109,9 @@ def _export_from_menu(
     console: Console, manifest: Manifest, manifest_path: Path, label: str
 ) -> None:
     remembered = settings.load()
-    destination = Path(
-        Prompt.ask(
-            "¿Dónde la copio?",
-            default=remembered.last_destination or str(default_downloads()),
-            console=console,
-        )
-    ).expanduser()
+    destination = ask_directory(
+        console, "¿En qué carpeta la copio?", remembered_directory(remembered.last_destination)
+    )
     safe_label = label if is_valid_image_name(label) else manifest_path.parent.name
     try:
         try:

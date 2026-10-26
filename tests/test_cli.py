@@ -313,7 +313,7 @@ def test_menu_asks_for_the_key_first_then_creates_and_reports_the_path(
     built = _tui_fixture(monkeypatch, tmp_path, json.dumps({"kind": "spec", "spec": spec}))
     destination = tmp_path / "out"
 
-    answers = f"secret-key\n4\n\nun servidor nginx\nweb\ny\nn\n{destination}\n0\n"
+    answers = f"secret-key\n4\n\nun servidor nginx\nweb\ny\nn\n{destination}\ny\n0\n"
     result = runner.invoke(app, [], input=answers)
 
     assert result.exit_code == 0, result.output
@@ -439,7 +439,7 @@ def test_examples_can_be_picked_by_number_and_tokens_are_shown(monkeypatch, tmp_
     completer = Counting(_spec_reply())
     monkeypatch.setattr("gira_iso.tui.create.OpenAiCompatible", lambda config: completer)
 
-    result = runner.invoke(app, [], input=f"k\n4\n\n2\nweb\nn\nn\n{tmp_path / 'out'}\n0\n")
+    result = runner.invoke(app, [], input=f"k\n4\n\n2\nweb\nn\nn\n{tmp_path / 'out'}\ny\n0\n")
 
     assert "docker instalado y htop" in completer.last_user
     assert "321 entrada" in result.output
@@ -452,7 +452,7 @@ def test_name_and_destination_are_remembered_for_the_next_run(monkeypatch, tmp_p
     _tui_fixture(monkeypatch, tmp_path, _spec_reply())
     destination = tmp_path / "out"
 
-    runner.invoke(app, [], input=f"k\n4\n\nun nginx\nweb\ny\nn\n{destination}\n0\n")
+    runner.invoke(app, [], input=f"k\n4\n\nun nginx\nweb\ny\nn\n{destination}\ny\n0\n")
 
     saved = settings.load()
     assert saved.last_name == "web"
@@ -543,6 +543,7 @@ def test_menu_image_detail_export_and_delete(monkeypatch, tmp_path: Path) -> Non
         "detalle",
         "exportar",
         str(out),
+        "y",  # create the folder
         "eliminar",
         "web",  # type the name to confirm
         "0",
@@ -788,7 +789,7 @@ def test_menu_tells_the_model_which_base_was_chosen(monkeypatch, tmp_path: Path)
     completer = Capturing(_spec_reply())
     monkeypatch.setattr("gira_iso.tui.create.OpenAiCompatible", lambda config: completer)
 
-    runner.invoke(app, [], input=f"k\n4\n1\nun nginx\nweb\nn\nn\n{tmp_path / 'out'}\n0\n")
+    runner.invoke(app, [], input=f"k\n4\n1\nun nginx\nweb\nn\nn\n{tmp_path / 'out'}\ny\n0\n")
 
     assert "Base image: ubuntu 22.04" in completer.last_user
 
@@ -839,7 +840,7 @@ def test_menu_shows_understood_and_unsupported_and_asks_accordingly(
     result = runner.invoke(
         app,
         [],
-        input=f"k\n4\n\nnginx docker htop curl opencode\nweb\ny\nn\n{tmp_path / 'out'}\n0\n",
+        input=f"k\n4\n\nnginx docker htop curl opencode\nweb\ny\nn\n{tmp_path / 'out'}\ny\n0\n",
     )
 
     assert result.exit_code == 0, result.output

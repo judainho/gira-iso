@@ -538,3 +538,17 @@ primer paso de la primera prueba real habría fallado. Sigue sin verificarse que
 `response_format: json_object` y siga el formato con `understood`/`unsupported`: eso solo se sabe con una
 clave. `GIRA_ISO_LLM_MODEL` o `--model` lo cambian.
 
+**2026-10-26 — Primera prueba real de lenguaje natural: funciona de punta a punta.** Con una clave real,
+`deepseek-v4.1-flash-1017` interpretó "Quiero una imagen con docker instalado y htop" como `docker.io` +
+`htop` con el servicio `docker` habilitado (1871 tokens de entrada, 202 de salida, 2,1 s) y la tabla "Lo
+que entendí" tradujo `docker` a `docker.io`. El build tardó 1 min 3 s, la verificación dio 4 de 4 (12
+aserciones de goss) y la imagen se exportó con el sha256 del manifest. El campo `understood` llegó bien;
+`unsupported` no se ejercitó (no se pidió nada fuera de apt).
+La prueba descubrió dos defectos de la pregunta de destino: se respondió `si` a "¿Dónde guardo la
+imagen?" y se aceptó como una carpeta relativa `si/`, mostrando `si/demo-v1.qcow2` sin ruta completa y
+recordando `last_destination: si`, que en la siguiente ejecución significaría otra carpeta. Ahora la
+ruta se resuelve a absoluta, si la carpeta no existe se muestra completa y se pide confirmar, un archivo
+no se acepta como carpeta, y una ruta relativa recordada se ignora. Además las líneas del log de Packer
+se cortan a una línea de pantalla (la de `rm -rf /var/lib/apt/lists/...` ocupaba un párrafo); el
+texto completo sigue en `logs/packer-build.log`. 13 tests nuevos; 370 en total.
+

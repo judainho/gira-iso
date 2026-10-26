@@ -173,7 +173,7 @@ Reglas del orquestador:
 | Base | se elige en una lista | la decide el modelo (por defecto 24.04) |
 | Vista previa del spec | siempre | solo con lenguaje natural y sin `--yes` |
 | Preguntas del modelo | las responde en pantalla | las responde con `typer.prompt`; con `--non-interactive` terminan con código 1 |
-| Exportar a una carpeta | sí, al final (`io.destination`) | no: existe `download` aparte |
+| Exportar a una carpeta | sí, al final (`io.destination`); la ruta se resuelve a absoluta y, si la carpeta no existe, se muestra completa y se pide confirmar | no: existe `download` aparte |
 | Spec desde archivo | no | sí |
 | Salida | tablas y paneles `rich` | texto en stderr; con `--json`, un objeto en stdout |
 
