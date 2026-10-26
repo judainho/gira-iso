@@ -14,8 +14,9 @@ from typing import Literal, Protocol
 
 from pydantic import ValidationError
 
-from gira_iso.nl.prompt import SYSTEM_PROMPT, user_message
+from gira_iso.nl.prompt import build_system_prompt, user_message
 from gira_iso.nl.schema import Interpretation
+from gira_iso.policy.evaluate import Allowlist, load_allowlist
 
 DEFAULT_BASE_URL = "https://api.llmapi.ai/v1"
 DEFAULT_MODEL = "deepseek-v4.1-flash"
@@ -164,8 +165,10 @@ def interpret(
     completer: Completer,
     retries: int = 1,
     context: str | None = None,
+    allowlist: Allowlist | None = None,
 ) -> Inference:
     """Interpret one request. A validation failure is fed back to the model once."""
+    system = build_system_prompt(allowlist or load_allowlist())
     user = user_message(request, context)
     last_error = ""
     raw = ""
@@ -180,7 +183,7 @@ def interpret(
                 f"{last_error}\n"
                 "Reply again with a single valid JSON object."
             )
-        completion = completer.complete(SYSTEM_PROMPT, prompt)
+        completion = completer.complete(system, prompt)
         raw = completion.text
         try:
             interpretation = _parse(completion.text)

@@ -806,3 +806,99 @@ def test_the_full_menu_is_drawn_once_then_a_single_line(monkeypatch, tmp_path: P
     assert result.output.count("Listar imágenes existentes") == 3  # 1 box + 2 compact lines
     assert result.output.count("┏") >= 1
     assert result.output.count("╭─") <= 3  # banner, menu, nothing repainted per action
+
+
+# --- the menu explains what it understood and what it could not include ----------------
+
+
+def _opencode_reply() -> str:
+    import json
+
+    return json.dumps(
+        {
+            "kind": "spec",
+            "spec": {
+                "packages": ["nginx", "docker.io", "htop", "curl"],
+                "services": {"enable": ["nginx", "docker"]},
+            },
+            "understood": [
+                {"requested": "docker", "resolved": "docker.io", "kind": "package"},
+            ],
+            "unsupported": [
+                {
+                    "item": "opencode",
+                    "kind": "program",
+                    "reason": "no es un paquete apt",
+                    "alternatives": ["tmux", "invented-pkg"],
+                }
+            ],
+        }
+    )
+
+
+def test_menu_shows_understood_and_unsupported_and_asks_accordingly(
+    monkeypatch, tmp_path: Path
+) -> None:
+    built = _tui_fixture(monkeypatch, tmp_path, _opencode_reply())
+
+    result = runner.invoke(
+        app,
+        [],
+        input=f"k\n4\n\nnginx docker htop curl opencode\nweb\ny\nn\n{tmp_path / 'out'}\n0\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Lo que entendí" in result.output
+    assert "docker.io" in result.output
+    assert "No puedo incluir" in result.output
+    assert "opencode" in result.output
+    assert "programa externo" in result.output
+    assert "tmux" in result.output
+    assert "invented-pkg" not in result.output
+    assert "sin lo que no puedo incluir" in result.output
+    assert len(built) == 1
+
+
+def test_menu_refuses_to_build_a_spec_the_policy_rejects(monkeypatch, tmp_path: Path) -> None:
+    import json
+
+    bad = json.dumps({"kind": "spec", "spec": {"packages": ["opencode"]}})
+    built = _tui_fixture(monkeypatch, tmp_path, bad, bad, bad)
+
+    result = runner.invoke(app, [], input="k\n4\n\nopencode\n0\n")
+
+    assert result.exit_code == 0, result.output
+    assert "La política rechaza este spec" in result.output
+    assert "No se construyó nada" in result.output
+    assert built == []
+
+
+def test_json_reports_what_was_skipped(monkeypatch, tmp_path: Path) -> None:
+    import json
+
+    _automation_fixture(monkeypatch, tmp_path, _opencode_reply())
+    monkeypatch.setenv("GIRA_ISO_LLM_API_KEY", "from-env")
+
+    result = runner.invoke(app, ["create", "x", "--name", "web", "--non-interactive", "--json"])
+
+    payload = json.loads(result.stdout)
+    assert [c["item"] for c in payload["unsupported"]] == ["opencode"]
+    assert payload["unsupported"][0]["alternatives"] == ["tmux"]
+    assert payload["understood"][0]["resolved"] == "docker.io"
+    assert "skipped     opencode" in result.stderr
+
+
+def test_cli_exits_1_when_the_policy_rejects_the_interpreted_spec(
+    monkeypatch, tmp_path: Path
+) -> None:
+    import json
+
+    bad = json.dumps({"kind": "spec", "spec": {"packages": ["opencode"]}})
+    built = _automation_fixture(monkeypatch, tmp_path, bad, bad, bad)
+    monkeypatch.setenv("GIRA_ISO_LLM_API_KEY", "from-env")
+
+    result = runner.invoke(app, ["create", "x", "--name", "web", "--non-interactive"])
+
+    assert result.exit_code == 1
+    assert "the policy rejects the interpreted spec" in result.stderr
+    assert built == []

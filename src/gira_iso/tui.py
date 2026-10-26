@@ -49,8 +49,9 @@ from gira_iso.nl.client import (
     OpenAiCompatible,
     check_credentials,
 )
-from gira_iso.nl.session import converse
-from gira_iso.policy.evaluate import load_allowlist
+from gira_iso.nl.explain import Explanation, explain
+from gira_iso.nl.session import SessionResult, converse, policy_checker
+from gira_iso.policy.evaluate import Allowlist, load_allowlist
 from gira_iso.spec.canonical import spec_hash, to_canonical_dict
 from gira_iso.spec.models import BaseImage, Spec
 from gira_iso.verify.verify import VerificationError, verify_build
@@ -63,6 +64,12 @@ MAX_QUESTION_ROUNDS = 3
 
 MAX_KEY_ATTEMPTS = 3
 MAX_WIDTH = 100
+_KIND_LABELS = {
+    "program": "programa externo",
+    "package": "paquete no permitido",
+    "service": "servicio no permitido",
+    "other": "no expresable",
+}
 PENDING_STATE = "se descarga al usarla"
 EXAMPLES = (
     ("Servidor web", "Un servidor web con nginx y un usuario deploy con sudo"),
@@ -352,9 +359,9 @@ def _choose_base(console: Console) -> tuple[str, str]:
 
 
 def _interpret(
-    console: Console, config: LlmConfig, request: str, base: str
-) -> tuple[Spec, dict[str, int], int] | None:
-    """Return (spec, token usage, latency ms) summed over every round, or None."""
+    console: Console, config: LlmConfig, request: str, base: tuple[str, str], allowlist: Allowlist
+) -> SessionResult | None:
+    """Run the conversation; print why and return None when there is no spec to show."""
 
     def answer(questions: list[str]) -> list[str]:
         console.print("[yellow]El modelo necesita más detalle:[/]")
@@ -364,16 +371,58 @@ def _interpret(
         request,
         OpenAiCompatible(config),
         answer=answer,
-        context=f"Base image: {base} (already chosen in the menu)",
+        context=f"Base image: {base[0]} {base[1]} (already chosen in the menu)",
+        check=policy_checker(allowlist, base),
         busy=lambda: console.status("Interpretando tu petición con el modelo…", spinner="dots"),
     )
     if result.spec is not None:
-        return result.spec, result.usage, result.latency_ms
+        return result
     if result.reason is not None:
         console.print(Panel(result.reason, title="Petición rechazada", border_style="red"))
     else:
         console.print(f"[red]✘ {result.error}[/]")
     return None
+
+
+def _show_explanation(console: Console, explanation: Explanation) -> None:
+    """What the model understood, and what it could not provide, in the user's terms."""
+    if explanation.understood:
+        table = Table(
+            title="Lo que entendí",
+            title_justify="left",
+            border_style="dim",
+            header_style=f"bold {ACCENT}",
+        )
+        for column in ("Pediste", "Se instala como", "Tipo"):
+            table.add_column(column)
+        for claim in explanation.understood:
+            table.add_row(claim.requested, claim.resolved, claim.kind)
+        console.print(table)
+    if explanation.unsupported:
+        table = Table(
+            title="No puedo incluir",
+            title_justify="left",
+            border_style="yellow",
+            header_style="bold yellow",
+        )
+        for column in ("Pediste", "Qué es", "Motivo", "Alternativas permitidas"):
+            table.add_column(column)
+        for claim in explanation.unsupported:
+            table.add_row(
+                claim.item,
+                _KIND_LABELS[claim.kind],
+                claim.reason,
+                ", ".join(claim.alternatives) or "-",
+            )
+        console.print(table)
+
+
+def _show_violations(console: Console, violations: tuple[str, ...]) -> None:
+    table = Table(title="La política rechaza este spec", border_style="red")
+    table.add_column("Motivo")
+    for line in violations:
+        table.add_row(line)
+    console.print(table)
 
 
 def _usage_line(usage: dict[str, int], latency_ms: int) -> str:
@@ -447,13 +496,21 @@ def create_image(console: Console, config: LlmConfig) -> None:
         console.print("[yellow]No escribiste nada.[/]")
         return
 
-    interpreted = _interpret(console, config, request, f"{os_name} {version}")
-    if interpreted is None:
+    allowlist = load_allowlist()
+    result = _interpret(console, config, request, (os_name, version), allowlist)
+    if result is None:
         return
-    spec, usage, latency = interpreted
+    assert result.spec is not None and result.interpretation is not None
+    spec, usage, latency = result.spec, result.usage, result.latency_ms
     # The base is the user's choice from the menu, not something the model decides.
     spec = spec.model_copy(update={"base": BaseImage(os=os_name, version=version)})
+    explanation = explain(result.interpretation, spec, allowlist)
+    _show_explanation(console, explanation)
     _show_spec(console, spec, _usage_line(usage, latency))
+    if result.violations:
+        _show_violations(console, result.violations)
+        console.print("[dim]No se construyó nada. Reformula la petición con lo permitido.[/]")
+        return
 
     remembered = settings.load()
     name = Prompt.ask(
@@ -462,7 +519,12 @@ def create_image(console: Console, config: LlmConfig) -> None:
     if not NAME_RE.match(name):
         console.print("[red]✘ Nombre inválido: usa letras, dígitos, '.', '_' o '-'.[/]")
         return
-    if not Confirm.ask("¿Construir esta imagen?", default=True, console=console):
+    question = (
+        "¿Construir la imagen sin lo que no puedo incluir?"
+        if explanation.unsupported
+        else "¿Construir esta imagen?"
+    )
+    if not Confirm.ask(question, default=True, console=console):
         return
     verify_after = Confirm.ask(
         "¿Arrancarla y verificarla al terminar? (más lento)", default=False, console=console

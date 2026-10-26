@@ -1,0 +1,74 @@
+# What the interpreter is told about the allowed software, so it can translate what a
+# person says ("docker", "web server") into the exact names the policy accepts.
+#
+# This file only DESCRIBES. What is allowed is decided by policy/allowlist.yaml; an entry
+# here that the active allowlist does not contain is ignored, and an allowlisted name with
+# no entry here is still listed (by name only). The model's claims are checked against the
+# policy afterwards, so a wrong description here cannot widen what gets built.
+
+packages:
+  apache2: {description: "Apache HTTP web server", aliases: [apache, httpd, web server]}
+  build-essential: {description: "C/C++ compiler toolchain and make", aliases: [gcc, g++, make, compiler]}
+  ca-certificates: {description: "Trusted TLS root certificates", aliases: [certificates, tls roots]}
+  certbot: {description: "Let's Encrypt certificate client", aliases: [letsencrypt, lets encrypt, ssl certificates]}
+  chrony: {description: "NTP time synchronisation", aliases: [ntp, time sync]}
+  cifs-utils: {description: "Mount Windows/SMB shares", aliases: [smb, samba client, windows shares]}
+  cloud-init: {description: "First-boot cloud configuration (always installed)", aliases: []}
+  containerd: {description: "Container runtime used by Docker", aliases: [container runtime]}
+  curl: {description: "Command-line HTTP client", aliases: [http client]}
+  dnsutils: {description: "dig and nslookup DNS tools", aliases: [dig, nslookup, bind-utils]}
+  docker.io: {description: "Docker engine from the Ubuntu repositories (not the official Docker CE)", aliases: [docker, docker engine, containers]}
+  fail2ban: {description: "Bans IPs after repeated failed logins", aliases: [brute force protection]}
+  git: {description: "Version control", aliases: [version control]}
+  htop: {description: "Interactive process viewer", aliases: [process monitor, top]}
+  jq: {description: "JSON processor for the command line", aliases: [json tool]}
+  logrotate: {description: "Log file rotation", aliases: [log rotation]}
+  mariadb-server: {description: "MariaDB database server", aliases: [mariadb, mysql compatible]}
+  memcached: {description: "In-memory cache server", aliases: [cache]}
+  mysql-server: {description: "MySQL database server", aliases: [mysql]}
+  net-tools: {description: "ifconfig, netstat and related tools", aliases: [ifconfig, netstat]}
+  nfs-common: {description: "NFS client", aliases: [nfs client]}
+  nginx: {description: "Web server and reverse proxy", aliases: [web server, servidor web, reverse proxy]}
+  nginx-extras: {description: "nginx with extra modules", aliases: [nginx modules]}
+  openssh-server: {description: "SSH server (always installed)", aliases: [ssh]}
+  postgresql: {description: "PostgreSQL database server", aliases: [postgres, database]}
+  postgresql-client: {description: "psql and PostgreSQL client tools", aliases: [psql]}
+  postgresql-contrib: {description: "Extra PostgreSQL extensions", aliases: []}
+  prometheus-node-exporter: {description: "Prometheus host metrics exporter", aliases: [node exporter, metrics, monitoring]}
+  python3: {description: "Python 3 interpreter", aliases: [python]}
+  python3-certbot-nginx: {description: "certbot plugin for nginx", aliases: []}
+  python3-pip: {description: "pip, the Python package installer", aliases: [pip]}
+  python3-venv: {description: "Python virtual environments", aliases: [venv, virtualenv]}
+  qemu-guest-agent: {description: "Host/guest agent for VMs (always installed)", aliases: []}
+  redis-server: {description: "Redis key-value store", aliases: [redis]}
+  rsync: {description: "File synchronisation", aliases: []}
+  supervisor: {description: "Process control system", aliases: [supervisord]}
+  tmux: {description: "Terminal multiplexer", aliases: [terminal multiplexer]}
+  ufw: {description: "Simple firewall front-end", aliases: [firewall]}
+  unattended-upgrades: {description: "Automatic security updates", aliases: [auto updates]}
+  unzip: {description: "ZIP extraction", aliases: [zip]}
+  vim: {description: "Text editor", aliases: [editor]}
+  wget: {description: "Command-line downloader", aliases: [download tool]}
+
+services:
+  chrony: {description: "Time synchronisation daemon"}
+  cron: {description: "Scheduled jobs"}
+  docker: {description: "Docker daemon (needs the docker.io package)"}
+  fail2ban: {description: "Intrusion banning daemon"}
+  nginx: {description: "nginx web server"}
+  postgresql: {description: "PostgreSQL server"}
+  prometheus-node-exporter: {description: "Metrics exporter"}
+  qemu-guest-agent: {description: "VM guest agent"}
+  redis-server: {description: "Redis server"}
+  ssh: {description: "SSH server"}
+  ufw: {description: "Firewall"}
+
+# Well-known software that is NOT in the catalog, so the model recognises it as a program
+# instead of guessing a package name. Not exhaustive: the prompt states the general rule.
+programs_outside_the_catalog:
+  - {name: opencode, how_it_is_installed: "npm package or install script"}
+  - {name: nvm, how_it_is_installed: "install script from GitHub"}
+  - {name: "Docker CE (official)", how_it_is_installed: "Docker's own apt repository"}
+  - {name: kubectl, how_it_is_installed: "binary download or snap"}
+  - {name: terraform, how_it_is_installed: "HashiCorp apt repository or binary download"}
+  - {name: "Node.js / npm", how_it_is_installed: "NodeSource repository or nvm; not in this catalog"}

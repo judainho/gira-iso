@@ -29,6 +29,14 @@ written to disk) and then offers:
 4. **Create an image**: choose the base, describe the image in Spanish or English (or pick one of
    the examples), review the interpreted spec and token usage, then watch the build.
 
+The interpreter is told the allowed catalog (`policy/allowlist.yaml`, described in
+`src/gira_iso/nl/catalog.yaml`), so it can tell a **package** (`docker` becomes `docker.io`) from
+a **program** that apt does not provide (opencode, nvm, the official Docker CE). The menu shows
+*what it understood* and *what it cannot include*, with the reason and allowed alternatives; those
+claims are checked against the spec and the policy before you see them. If the policy rejects the
+spec, the violations go back to the model so it can correct itself, and nothing is built unless
+the final spec passes.
+
 The last image name and destination are remembered. `Ctrl+C` returns to the menu.
 
 ## Commands

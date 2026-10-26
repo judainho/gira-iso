@@ -41,7 +41,8 @@ from gira_iso.nl.client import (
     OpenAiCompatible,
     config_from_env,
 )
-from gira_iso.nl.session import converse
+from gira_iso.nl.explain import Explanation, explain
+from gira_iso.nl.session import converse, policy_checker
 from gira_iso.policy.evaluate import ENV_VAR, Verdict, allowlist_digest, load_allowlist
 from gira_iso.policy.evaluate import evaluate as evaluate_policy
 from gira_iso.push.openstack import PushError, upload_image
@@ -250,20 +251,31 @@ def _llm_config(model: str | None, interactive: bool) -> LlmConfig:
     return LlmConfig(base_url=base_url, api_key=api_key, model=chosen_model)
 
 
-def _spec_from_request(request: str, model: str | None, interactive: bool) -> Spec:
+def _spec_from_request(
+    request: str, model: str | None, interactive: bool
+) -> tuple[Spec, Explanation]:
     """Ask the model; follow-up questions are answered at the prompt when someone can."""
 
     def answer(questions: list[str]) -> list[str]:
         typer.echo("the model needs more detail:", err=True)
         return [typer.prompt(f"  {question}") for question in questions]
 
+    allowlist = load_allowlist()
     result = converse(
         request,
         OpenAiCompatible(_llm_config(model, interactive)),
         answer=answer if interactive else None,
+        check=policy_checker(allowlist),
     )
-    if result.spec is not None:
-        return result.spec
+    if result.spec is not None and result.interpretation is not None:
+        explanation = explain(result.interpretation, result.spec, allowlist)
+        if result.violations:
+            _print_explanation(explanation)
+            typer.echo("the policy rejects the interpreted spec:", err=True)
+            for line in result.violations:
+                typer.echo(f"  {line}", err=True)
+            raise typer.Exit(EXIT_REJECTED)
+        return result.spec, explanation
     if result.reason is not None:
         typer.echo(f"rejected: {result.reason}", err=True)
         raise typer.Exit(EXIT_REJECTED)
@@ -274,6 +286,20 @@ def _spec_from_request(request: str, model: str | None, interactive: bool) -> Sp
         raise typer.Exit(EXIT_REJECTED)
     typer.echo(f"error: {result.error}", err=True)
     raise typer.Exit(EXIT_INVALID)
+
+
+def _print_explanation(explanation: Explanation) -> None:
+    for claim in explanation.understood:
+        typer.echo(f"  understood  {claim.requested} -> {claim.resolved} ({claim.kind})", err=True)
+    for claim in explanation.unsupported:
+        alternatives = (
+            f"; allowed alternatives: {', '.join(claim.alternatives)}"
+            if (claim.alternatives)
+            else ""
+        )
+        typer.echo(
+            f"  skipped     {claim.item} ({claim.kind}): {claim.reason}{alternatives}", err=True
+        )
 
 
 @app.command()
@@ -310,6 +336,7 @@ def create(
         typer.echo(message, err=err)
 
     from_file = _is_spec_file(source)
+    explanation = Explanation()
     if from_file:
         parsed = _load_spec(Path(source))
         chosen = _checked_name(name or Path(source).stem)
@@ -319,8 +346,9 @@ def create(
             typer.echo("error: --name is required with a natural-language request", err=True)
             raise typer.Exit(EXIT_INVALID)
         chosen = _checked_name(name)
-        parsed = _spec_from_request(source, model, interactive)
+        parsed, explanation = _spec_from_request(source, model, interactive)
         say("interpreted request as:")
+        _print_explanation(explanation)
     say(f"  name      {chosen}")
     say(f"  hash      {spec_hash(parsed)}")
     _summarise(parsed, err=err)
@@ -364,6 +392,8 @@ def create(
             "base": f"{manifest.base.os} {manifest.base.version}",
             "spec_hash": spec_hash(parsed),
             "verified": verified,
+            "understood": [claim.model_dump() for claim in explanation.understood],
+            "unsupported": [claim.model_dump() for claim in explanation.unsupported],
         }
         typer.echo(json.dumps(payload, indent=2))
     if verified is False:
