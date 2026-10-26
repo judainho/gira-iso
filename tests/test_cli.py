@@ -646,3 +646,135 @@ def test_describe_lists_the_hashes_a_reader_needs(tmp_path: Path) -> None:
     assert rows["Base sha256"] == "1" * 64
     assert rows["Imagen sha256"] == manifest.artifact.sha256
     assert rows["Paquetes"] == "nginx"
+
+
+# --- automation: --json and --non-interactive ----------------------------------------
+
+
+def _automation_fixture(monkeypatch, tmp_path: Path, *replies: str) -> list:
+    import gira_iso.cli as cli
+
+    build_dir = write_build(tmp_path / "builds", name="web")
+    fake = BuildResult(
+        build_dir=build_dir,
+        image=build_dir / "image" / IMAGE,
+        manifest=build_dir / "manifest.json",
+    )
+    built: list = []
+
+    def fake_build(spec, **kwargs):
+        built.append(spec)
+        kwargs["progress"]("Validando el spec")
+        return fake
+
+    monkeypatch.setattr(cli, "build_image", fake_build)
+    monkeypatch.setattr(cli, "OpenAiCompatible", lambda config: FakeCompleter(*replies))
+    monkeypatch.delenv("GIRA_ISO_LLM_API_KEY", raising=False)
+    return built
+
+
+def test_json_output_is_the_only_thing_on_stdout(monkeypatch, tmp_path: Path) -> None:
+    import json
+
+    _automation_fixture(monkeypatch, tmp_path, _spec_reply())
+    monkeypatch.setenv("GIRA_ISO_LLM_API_KEY", "from-env")
+
+    result = runner.invoke(
+        app, ["create", "un nginx", "--name", "web", "--yes", "--json", "--non-interactive"]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["name"] == "web"
+    assert payload["base"] == "ubuntu 24.04"
+    assert payload["image"].endswith(IMAGE)
+    assert len(payload["sha256"]) == 64
+    assert payload["verified"] is None
+    assert "Validando el spec" in result.stderr
+    assert "interpreted request as" in result.stderr
+    assert "Validando" not in result.stdout
+
+
+def test_non_interactive_without_a_key_fails_fast(monkeypatch, tmp_path: Path) -> None:
+    built = _automation_fixture(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["create", "un nginx", "--name", "web", "--non-interactive"])
+
+    assert result.exit_code == 2
+    assert "GIRA_ISO_LLM_API_KEY" in result.stderr
+    assert built == []
+
+
+def test_non_interactive_never_asks_the_model_questions(monkeypatch, tmp_path: Path) -> None:
+    import json
+
+    built = _automation_fixture(
+        monkeypatch,
+        tmp_path,
+        json.dumps({"kind": "questions", "questions": ["Which user?"]}),
+    )
+    monkeypatch.setenv("GIRA_ISO_LLM_API_KEY", "from-env")
+
+    result = runner.invoke(app, ["create", "un nginx", "--name", "web", "--non-interactive"])
+
+    assert result.exit_code == 1
+    assert "Which user?" in result.stderr
+    assert built == []
+
+
+def test_non_interactive_skips_the_build_confirmation(monkeypatch, tmp_path: Path) -> None:
+    built = _automation_fixture(monkeypatch, tmp_path, _spec_reply())
+    monkeypatch.setenv("GIRA_ISO_LLM_API_KEY", "from-env")
+
+    result = runner.invoke(app, ["create", "un nginx", "--name", "web", "--non-interactive"])
+
+    assert result.exit_code == 0, result.output
+    assert len(built) == 1
+    assert "build this image?" not in result.output
+
+
+def test_json_with_a_policy_rejection_leaves_stdout_empty(monkeypatch, tmp_path: Path) -> None:
+    spec = tmp_path / "bad.yaml"
+    spec.write_text("packages: [definitely-not-allowlisted-pkg]\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app, ["create", str(spec), "--json", "--work-root", str(tmp_path / "builds")]
+    )
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "not in the package allowlist" in result.stderr
+
+
+def test_list_json(tmp_path: Path) -> None:
+    import json
+
+    write_build(tmp_path)
+
+    result = runner.invoke(app, ["list", "--json", "--work-root", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    rows = json.loads(result.stdout)
+    assert [row["name"] for row in rows] == ["web"]
+    assert rows[0]["virtual_size_bytes"] == 10 * 1024**3
+
+
+def test_list_json_with_no_images_is_an_empty_array(tmp_path: Path) -> None:
+    import json
+
+    result = runner.invoke(app, ["list", "--json", "--work-root", str(tmp_path / "none")])
+
+    assert json.loads(result.stdout) == []
+
+
+def test_show_json_is_the_manifest(tmp_path: Path) -> None:
+    import json
+
+    write_build(tmp_path)
+
+    result = runner.invoke(app, ["show", "web", "--json", "--work-root", str(tmp_path)])
+
+    payload = json.loads(result.stdout)
+    assert payload["name"] == "web"
+    assert payload["base"]["sha256"] == "1" * 64
+    assert payload["build_dir"].endswith("20260101T000000Z-abcdef123456")

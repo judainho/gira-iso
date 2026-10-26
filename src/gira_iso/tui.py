@@ -44,13 +44,11 @@ from gira_iso.builder.manifest import Manifest
 from gira_iso.nl.client import (
     DEFAULT_BASE_URL,
     DEFAULT_MODEL,
-    Inference,
-    InterpretError,
     LlmConfig,
     OpenAiCompatible,
     check_credentials,
-    interpret,
 )
+from gira_iso.nl.session import converse
 from gira_iso.policy.evaluate import load_allowlist
 from gira_iso.spec.canonical import spec_hash, to_canonical_dict
 from gira_iso.spec.models import BaseImage, Spec
@@ -355,40 +353,24 @@ def _interpret(
     console: Console, config: LlmConfig, request: str
 ) -> tuple[Spec, dict[str, int], int] | None:
     """Return (spec, token usage, latency ms) summed over every round, or None."""
-    completer = OpenAiCompatible(config)
-    text = request
-    usage: dict[str, int] = {}
-    latency = 0
-    for _ in range(MAX_QUESTION_ROUNDS):
-        try:
-            with console.status("Interpretando tu petición con el modelo…", spinner="dots"):
-                inference = interpret(text, completer=completer)
-        except InterpretError as exc:
-            console.print(f"[red]✘ {exc}[/]")
-            return None
-        _accumulate(usage, inference)
-        latency += inference.latency_ms
-        result = inference.interpretation
-        if result.kind == "spec":
-            assert result.spec is not None
-            return result.spec, usage, latency
-        if result.kind == "reject":
-            console.print(
-                Panel(result.reason or "", title="Petición rechazada", border_style="red")
-            )
-            return None
-        assert result.questions is not None
+
+    def answer(questions: list[str]) -> list[str]:
         console.print("[yellow]El modelo necesita más detalle:[/]")
-        answers = [Prompt.ask(f"  {question}", console=console) for question in result.questions]
-        details = "\n".join(f"- {q} {a}" for q, a in zip(result.questions, answers, strict=True))
-        text = f"{text}\n\nAdditional details:\n{details}"
-    console.print("[red]✘ La petición sigue siendo ambigua tras tres rondas.[/]")
+        return [Prompt.ask(f"  {question}", console=console) for question in questions]
+
+    result = converse(
+        request,
+        OpenAiCompatible(config),
+        answer=answer,
+        busy=lambda: console.status("Interpretando tu petición con el modelo…", spinner="dots"),
+    )
+    if result.spec is not None:
+        return result.spec, result.usage, result.latency_ms
+    if result.reason is not None:
+        console.print(Panel(result.reason, title="Petición rechazada", border_style="red"))
+    else:
+        console.print(f"[red]✘ {result.error}[/]")
     return None
-
-
-def _accumulate(total: dict[str, int], inference: Inference) -> None:
-    for key, value in inference.usage.items():
-        total[key] = total.get(key, 0) + value
 
 
 def _usage_line(usage: dict[str, int], latency_ms: int) -> str:

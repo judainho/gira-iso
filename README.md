@@ -16,23 +16,58 @@ natural language -> spec (spec.yaml) -> build template -> qcow2 image -> verific
 Status: initial design (v0). Development is incremental: every stage is built by hand and
 understood before it is automated.
 
+## Interactive menu
+
+Run `gira-iso` with no arguments. It asks for the API key first (hidden, validated, never
+written to disk) and then offers:
+
+1. **List images**: pick one to see its provenance, export it, or delete it.
+2. **Upload a base image**: register a local Ubuntu cloud image (`*-cloudimg-amd64.img`, qcow2).
+   Installer ISOs are refused; they cannot be used as a base.
+3. **Base images**: the pinned official ones (Ubuntu 22.04 and 24.04) and your own, with a
+   download option for the official ones.
+4. **Create an image**: choose the base, describe the image in Spanish or English (or pick one of
+   the examples), review the interpreted spec and token usage, then watch the build.
+
+The last image name and destination are remembered. `Ctrl+C` returns to the menu.
+
 ## Commands
 
-The first CLI surface is three verbs:
+The scripted surface mirrors the menu:
 
 ```bash
-uv run gira-iso list                                  # images already created
-uv run gira-iso create examples/nginx-web.yaml --name web   # ~45s, writes image + manifest
-uv run gira-iso download web --to ~/Downloads         # copies image + manifest, checksum verified
+gira-iso list                                          # images already created
+gira-iso create examples/nginx-web.yaml --name web     # ~45s, writes image + manifest
+gira-iso create "a web server with nginx" --name web   # natural language (asks for the key)
+gira-iso show web                                      # provenance recorded for an image
+gira-iso download web --to ~/Downloads                 # copies image + manifest, checksum verified
+gira-iso delete web                                    # asks first; --yes to skip
 ```
 
 `create` runs the schema and policy checks before downloading or building anything, so a
 rejected spec costs nothing. Add `--verify` to boot the image and run the generated goss
 assertions immediately after the build. `download` accepts an image name, a build id prefix,
-a build directory or a `manifest.json` path.
+a build directory or a `manifest.json` path. Builds live in `~/.local/share/gira-iso/builds`
+(override the root with `GIRA_ISO_HOME`).
 
 The older commands (`check`, `plan`, `build`, `verify`, `policy`, `push`, `eval`) are still
-available but hidden from the main help: they are the advanced/automation surface.
+available but hidden from the main help: they are the advanced surface.
+
+## Automation
+
+For scripts and CI, `--json` keeps stdout for one JSON object (progress goes to stderr) and
+`--non-interactive` never prompts: the key must be in `GIRA_ISO_LLM_API_KEY`, `--yes` is implied,
+and a request that needs more detail exits `1` listing the questions.
+
+```bash
+export GIRA_ISO_LLM_API_KEY=...
+gira-iso create "a web server with nginx" --name web --non-interactive --json | jq -r .image
+gira-iso list --json | jq '.[].name'
+gira-iso show web --json | jq .base
+```
+
+Exit codes: `0` success, `1` the policy or the verification rejected something (or the model
+needs more detail), `2` invalid input.
 
 ## Documents
 
@@ -45,8 +80,8 @@ available but hidden from the main help: they are the advanced/automation surfac
 powershell -ExecutionPolicy Bypass -File .\install.ps1    # Windows: sets up WSL2 and runs install.sh inside it
 ```
 
-Then run `gira-iso` (on Windows: `wsl -d Ubuntu -- gira-iso`). It asks what image you want and,
-if no `GIRA_ISO_LLM_API_KEY` is set, for your API key (endpoint `https://api.llmapi.ai/v1`).
+Then run `gira-iso` (on Windows: `wsl -d Ubuntu -- gira-iso`) to open the menu. It asks for your
+API key unless `GIRA_ISO_LLM_API_KEY` is set (endpoint `https://api.llmapi.ai/v1`).
 
 ## From zero
 
@@ -69,8 +104,8 @@ uv run gira-iso download web --to ~/Downloads               # copies image + man
 # 5. Optional: boot the image and prove it satisfies its manifest
 uv run gira-iso create examples/nginx-web.yaml --name web --verify
 
-# 6. The natural-language interpreter is not wired to the simple CLI yet;
-#    it lives in the evaluation harness (see "Interpreting natural language").
+# 6. Natural language: the interactive menu, or measure the interpreter with the harness
+uv run gira-iso
 export GIRA_ISO_LLM_BASE_URL=... GIRA_ISO_LLM_API_KEY=... GIRA_ISO_LLM_MODEL=...
 uv run gira-iso eval
 ```

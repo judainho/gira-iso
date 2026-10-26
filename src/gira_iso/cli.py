@@ -11,6 +11,7 @@ Exit codes:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -39,8 +40,8 @@ from gira_iso.nl.client import (
     LlmConfig,
     OpenAiCompatible,
     config_from_env,
-    interpret,
 )
+from gira_iso.nl.session import converse
 from gira_iso.policy.evaluate import ENV_VAR, Verdict, allowlist_digest, load_allowlist
 from gira_iso.policy.evaluate import evaluate as evaluate_policy
 from gira_iso.push.openstack import PushError, upload_image
@@ -103,22 +104,23 @@ def _load_spec(path: Path) -> Spec:
         raise typer.Exit(EXIT_INVALID) from None
 
 
-def _summarise(spec: Spec) -> None:
-    typer.echo(f"  base      {spec.base.os} {spec.base.version}, disk {spec.disk_size}")
+def _summarise(spec: Spec, err: bool = False) -> None:
+    typer.echo(f"  base      {spec.base.os} {spec.base.version}, disk {spec.disk_size}", err=err)
     typer.echo(
         f"  content   {len(spec.packages)} package(s), "
         f"{len(spec.services.enable)} service(s) enabled, "
-        f"{len(spec.users)} user(s), {len(spec.files)} file(s)"
+        f"{len(spec.users)} user(s), {len(spec.files)} file(s)",
+        err=err,
     )
 
 
-def _report(verdict: Verdict) -> None:
+def _report(verdict: Verdict, err: bool = False) -> None:
     if verdict.passed:
-        typer.echo("  verdict   PASS")
+        typer.echo("  verdict   PASS", err=err)
         return
-    typer.echo(f"  verdict   FAIL ({len(verdict.violations)} violation(s))")
+    typer.echo(f"  verdict   FAIL ({len(verdict.violations)} violation(s))", err=err)
     for violation in verdict.violations:
-        typer.echo(f"    {violation.location}: [{violation.code}] {violation.message}")
+        typer.echo(f"    {violation.location}: [{violation.code}] {violation.message}", err=err)
 
 
 _IMAGE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -176,10 +178,10 @@ def _resolve_image(reference: str, work_root: Path) -> tuple[Manifest, Path]:
     return next(iter(matches.values()))
 
 
-def _print_checks(result: VerifyResult) -> None:
+def _print_checks(result: VerifyResult, err: bool = False) -> None:
     for check in result.checks:
         status = "PASS" if check.passed else "FAIL"
-        typer.echo(f"  {status}  {check.name:<42} {check.detail}")
+        typer.echo(f"  {status}  {check.name:<42} {check.detail}", err=err)
 
 
 @app.command("list")
@@ -189,10 +191,30 @@ def list_images(
         "--work-root",
         help=WORK_ROOT_HELP,
     ),
+    json_output: bool = typer.Option(False, "--json", help="Print the list as JSON"),
 ) -> None:
     """List the images that have been created."""
     root = work_root or builds_dir()
     builds = _scan_builds(root)
+    if json_output:
+        typer.echo(
+            json.dumps(
+                [
+                    {
+                        "name": _display_name(manifest, path.parent),
+                        "created_at": manifest.created_at.isoformat(),
+                        "base": f"{manifest.base.os} {manifest.base.version}",
+                        "virtual_size_bytes": manifest.artifact.virtual_size_bytes,
+                        "sha256": manifest.artifact.sha256,
+                        "build": path.parent.name,
+                        "manifest": str(path),
+                    }
+                    for manifest, path in builds
+                ],
+                indent=2,
+            )
+        )
+        return
     if not builds:
         typer.echo(f"no images found in {root}")
         return
@@ -211,13 +233,16 @@ def _is_spec_file(value: str) -> bool:
     return value.endswith((".yaml", ".yml")) or Path(value).is_file()
 
 
-def _llm_config(model: str | None) -> LlmConfig:
-    """Environment first; otherwise ask for the key, which is never stored."""
+def _llm_config(model: str | None, interactive: bool) -> LlmConfig:
+    """Environment first; otherwise ask for the key (never stored), unless nobody can answer."""
     base_url = os.environ.get("GIRA_ISO_LLM_BASE_URL", DEFAULT_BASE_URL)
     chosen_model = model or os.environ.get("GIRA_ISO_LLM_MODEL", DEFAULT_MODEL)
     api_key = os.environ.get("GIRA_ISO_LLM_API_KEY")
     if not api_key:
-        typer.echo(f"endpoint: {base_url}  model: {chosen_model}")
+        if not interactive:
+            typer.echo("error: --non-interactive needs the key in GIRA_ISO_LLM_API_KEY", err=True)
+            raise typer.Exit(EXIT_INVALID)
+        typer.echo(f"endpoint: {base_url}  model: {chosen_model}", err=True)
         api_key = typer.prompt("API key", hide_input=True).strip()
     if not api_key:
         typer.echo("error: an API key is required to interpret a request", err=True)
@@ -225,29 +250,29 @@ def _llm_config(model: str | None) -> LlmConfig:
     return LlmConfig(base_url=base_url, api_key=api_key, model=chosen_model)
 
 
-def _spec_from_request(request: str, model: str | None) -> Spec:
-    """Ask the model; follow-up questions are answered at the prompt, up to three rounds."""
-    completer = OpenAiCompatible(_llm_config(model))
-    text = request
-    for _ in range(3):
-        try:
-            inference = interpret(text, completer=completer)
-        except InterpretError as exc:
-            typer.echo(f"error: {exc}", err=True)
-            raise typer.Exit(EXIT_INVALID) from None
-        result = inference.interpretation
-        if result.kind == "spec":
-            assert result.spec is not None
-            return result.spec
-        if result.kind == "reject":
-            typer.echo(f"rejected: {result.reason}", err=True)
-            raise typer.Exit(EXIT_REJECTED)
-        assert result.questions is not None
-        typer.echo("the model needs more detail:")
-        answers = [typer.prompt(f"  {question}") for question in result.questions]
-        details = "\n".join(f"- {q} {a}" for q, a in zip(result.questions, answers, strict=True))
-        text = f"{text}\n\nAdditional details:\n{details}"
-    typer.echo("error: the request is still ambiguous after three rounds", err=True)
+def _spec_from_request(request: str, model: str | None, interactive: bool) -> Spec:
+    """Ask the model; follow-up questions are answered at the prompt when someone can."""
+
+    def answer(questions: list[str]) -> list[str]:
+        typer.echo("the model needs more detail:", err=True)
+        return [typer.prompt(f"  {question}") for question in questions]
+
+    result = converse(
+        request,
+        OpenAiCompatible(_llm_config(model, interactive)),
+        answer=answer if interactive else None,
+    )
+    if result.spec is not None:
+        return result.spec
+    if result.reason is not None:
+        typer.echo(f"rejected: {result.reason}", err=True)
+        raise typer.Exit(EXIT_REJECTED)
+    if result.questions:
+        typer.echo("the request needs more detail (--non-interactive cannot ask):", err=True)
+        for question in result.questions:
+            typer.echo(f"  - {question}", err=True)
+        raise typer.Exit(EXIT_REJECTED)
+    typer.echo(f"error: {result.error}", err=True)
     raise typer.Exit(EXIT_INVALID)
 
 
@@ -267,46 +292,82 @@ def create(
     ),
     model: str = typer.Option(None, "--model", help="Model for natural-language requests"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation before building"),
+    json_output: bool = typer.Option(
+        False, "--json", help="Print one JSON object on stdout; all progress goes to stderr"
+    ),
+    non_interactive: bool = typer.Option(
+        False,
+        "--non-interactive",
+        help="Never prompt: the key comes from GIRA_ISO_LLM_API_KEY and --yes is implied",
+    ),
 ) -> None:
     """Create an image from a spec file or a natural-language request."""
+    # With --json, stdout is reserved for the result so a script can pipe it.
+    err = json_output
+    interactive = not non_interactive
+
+    def say(message: str) -> None:
+        typer.echo(message, err=err)
+
     from_file = _is_spec_file(source)
     if from_file:
         parsed = _load_spec(Path(source))
         chosen = _checked_name(name or Path(source).stem)
-        typer.echo(f"spec: {source}")
+        say(f"spec: {source}")
     else:
         if name is None:
             typer.echo("error: --name is required with a natural-language request", err=True)
             raise typer.Exit(EXIT_INVALID)
         chosen = _checked_name(name)
-        parsed = _spec_from_request(source, model)
-        typer.echo("interpreted request as:")
-    typer.echo(f"  name      {chosen}")
-    typer.echo(f"  hash      {spec_hash(parsed)}")
-    _summarise(parsed)
+        parsed = _spec_from_request(source, model, interactive)
+        say("interpreted request as:")
+    say(f"  name      {chosen}")
+    say(f"  hash      {spec_hash(parsed)}")
+    _summarise(parsed, err=err)
 
-    if not from_file and not yes:
-        typer.echo(yaml.safe_dump(to_canonical_dict(parsed), sort_keys=False))
-        if not typer.confirm("build this image?", default=True):
+    if not from_file and not yes and interactive:
+        say(yaml.safe_dump(to_canonical_dict(parsed), sort_keys=False))
+        if not typer.confirm("build this image?", default=True, err=err):
             raise typer.Exit(EXIT_OK)
 
     try:
-        result = build_image(parsed, work_root=work_root, name=chosen)
+        result = build_image(
+            parsed,
+            work_root=work_root,
+            name=chosen,
+            progress=lambda message: say(f"> {message}"),
+        )
     except BuildRejected as rejected:
-        _report(rejected.verdict)
+        _report(rejected.verdict, err=True)
         typer.echo("nothing was downloaded or built", err=True)
         raise typer.Exit(EXIT_REJECTED) from None
 
-    typer.echo(f"  build     {result.build_dir}")
-    typer.echo(f"  image     {result.image} ({result.image.stat().st_size} bytes)")
-    typer.echo(f"  manifest  {result.manifest}")
+    say(f"  build     {result.build_dir}")
+    say(f"  image     {result.image} ({result.image.stat().st_size} bytes)")
+    say(f"  manifest  {result.manifest}")
 
-    if not verify:
-        return
-    typer.echo("verify:")
-    verification = verify_build(result.build_dir)
-    _print_checks(verification)
-    raise typer.Exit(EXIT_OK if verification.passed else EXIT_REJECTED)
+    verified: bool | None = None
+    if verify:
+        say("verify:")
+        verification = verify_build(result.build_dir)
+        _print_checks(verification, err=err)
+        verified = verification.passed
+
+    if json_output:
+        manifest = Manifest.model_validate_json(result.manifest.read_text(encoding="utf-8"))
+        payload = {
+            "name": chosen,
+            "image": str(result.image),
+            "manifest": str(result.manifest),
+            "build_dir": str(result.build_dir),
+            "sha256": manifest.artifact.sha256,
+            "base": f"{manifest.base.os} {manifest.base.version}",
+            "spec_hash": spec_hash(parsed),
+            "verified": verified,
+        }
+        typer.echo(json.dumps(payload, indent=2))
+    if verified is False:
+        raise typer.Exit(EXIT_REJECTED)
 
 
 @app.command()
@@ -342,14 +403,16 @@ def download(
 @app.command()
 def show(
     image: str = typer.Argument(..., help="Image name, build id prefix, directory or manifest"),
-    work_root: Path = typer.Option(
-        None,
-        "--work-root",
-        help=WORK_ROOT_HELP,
-    ),
+    work_root: Path = typer.Option(None, "--work-root", help=WORK_ROOT_HELP),
+    json_output: bool = typer.Option(False, "--json", help="Print the manifest as JSON"),
 ) -> None:
     """Show the provenance recorded for one image."""
     manifest, manifest_path = _resolve_image(image, work_root or builds_dir())
+    if json_output:
+        payload = json.loads(manifest.model_dump_json())
+        payload["build_dir"] = str(manifest_path.parent)
+        typer.echo(json.dumps(payload, indent=2))
+        return
     for label, value in describe(manifest, manifest_path.parent):
         typer.echo(f"  {label:<14}{value}")
 
