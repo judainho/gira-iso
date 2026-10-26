@@ -26,7 +26,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from gira_iso import __version__
+from gira_iso import __version__, settings
 from gira_iso.bases import UserBaseError, home, list_user_bases, register_base
 from gira_iso.builder import packer
 from gira_iso.builder.base import BaseImageError, cache_dir
@@ -36,9 +36,11 @@ from gira_iso.builder.manifest import Manifest
 from gira_iso.nl.client import (
     DEFAULT_BASE_URL,
     DEFAULT_MODEL,
+    Inference,
     InterpretError,
     LlmConfig,
     OpenAiCompatible,
+    check_credentials,
     interpret,
 )
 from gira_iso.policy.evaluate import load_allowlist
@@ -51,6 +53,17 @@ EMAIL = "maliagaa@pucp.edu.pe"
 ORG = "GIRA PUCP"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 MAX_QUESTION_ROUNDS = 3
+
+MAX_KEY_ATTEMPTS = 3
+EXAMPLES = (
+    ("Servidor web", "Un servidor web con nginx y un usuario deploy con sudo"),
+    ("Docker", "Una imagen con docker instalado y htop"),
+    (
+        "Servidor con configuración",
+        "Un servidor nginx con una página de health en /etc/nginx/conf.d/health.conf "
+        "que responda ok en el puerto 8080",
+    ),
+)
 
 ACCENT = "cyan"
 LOGO = r"""
@@ -87,19 +100,31 @@ def section(console: Console, title: str) -> None:
     console.rule(f"[bold {ACCENT}]{title}[/]", style=ACCENT)
 
 
-def ask_api_key(console: Console) -> LlmConfig:
-    """The key is the first thing asked for, hidden, and never written anywhere."""
+def ask_api_key(console: Console) -> LlmConfig | None:
+    """The key is the first thing asked for, hidden, validated, and never written anywhere."""
     base_url = os.environ.get("GIRA_ISO_LLM_BASE_URL", DEFAULT_BASE_URL)
     model = os.environ.get("GIRA_ISO_LLM_MODEL", DEFAULT_MODEL)
     console.print(f"[dim]Endpoint[/] {base_url}   [dim]Modelo[/] {model}")
     key = os.environ.get("GIRA_ISO_LLM_API_KEY", "").strip()
     if key:
-        console.print("[green]✔[/] Usando la API key de GIRA_ISO_LLM_API_KEY\n")
-    else:
+        console.print("[dim]Usando la API key de GIRA_ISO_LLM_API_KEY[/]")
+
+    for _ in range(MAX_KEY_ATTEMPTS):
         while not key:
             key = Prompt.ask("[bold]API Key[/]", password=True, console=console).strip()
-        console.print("[green]✔[/] API key recibida (solo vive en memoria)\n")
-    return LlmConfig(base_url=base_url, api_key=key, model=model)
+        config = LlmConfig(base_url=base_url, api_key=key, model=model)
+        with console.status("Validando la clave…", spinner="dots"):
+            outcome = check_credentials(config)
+        if outcome.status == "ok":
+            console.print("[green]✔[/] API key válida (solo vive en memoria)\n")
+            return config
+        if outcome.status == "unverified":
+            console.print(f"[yellow]![/] No pude verificar la clave: {outcome.detail}. Continúo.\n")
+            return config
+        console.print(f"[red]✘ {outcome.detail}.[/] Prueba con otra.")
+        key = ""
+    console.print("[red]Demasiados intentos con una clave inválida.[/]")
+    return None
 
 
 def _fmt_size(num: int) -> str:
@@ -203,19 +228,27 @@ def _choose_base(console: Console) -> tuple[str, str]:
     return os_name, version
 
 
-def _interpret(console: Console, config: LlmConfig, request: str) -> Spec | None:
+def _interpret(
+    console: Console, config: LlmConfig, request: str
+) -> tuple[Spec, dict[str, int], int] | None:
+    """Return (spec, token usage, latency ms) summed over every round, or None."""
     completer = OpenAiCompatible(config)
     text = request
+    usage: dict[str, int] = {}
+    latency = 0
     for _ in range(MAX_QUESTION_ROUNDS):
         try:
             with console.status("Interpretando tu petición con el modelo…", spinner="dots"):
-                result = interpret(text, completer=completer).interpretation
+                inference = interpret(text, completer=completer)
         except InterpretError as exc:
             console.print(f"[red]✘ {exc}[/]")
             return None
+        _accumulate(usage, inference)
+        latency += inference.latency_ms
+        result = inference.interpretation
         if result.kind == "spec":
             assert result.spec is not None
-            return result.spec
+            return result.spec, usage, latency
         if result.kind == "reject":
             console.print(
                 Panel(result.reason or "", title="Petición rechazada", border_style="red")
@@ -230,15 +263,46 @@ def _interpret(console: Console, config: LlmConfig, request: str) -> Spec | None
     return None
 
 
-def _show_spec(console: Console, spec: Spec) -> None:
+def _accumulate(total: dict[str, int], inference: Inference) -> None:
+    for key, value in inference.usage.items():
+        total[key] = total.get(key, 0) + value
+
+
+def _usage_line(usage: dict[str, int], latency_ms: int) -> str:
+    parts = []
+    if usage:
+        parts.append(
+            f"tokens: {usage.get('prompt_tokens', 0)} entrada · "
+            f"{usage.get('completion_tokens', 0)} salida"
+        )
+    parts.append(f"{latency_ms / 1000:.1f} s")
+    return "  ·  ".join(parts)
+
+
+def _show_spec(console: Console, spec: Spec, usage_line: str = "") -> None:
     body = yaml.safe_dump(to_canonical_dict(spec), sort_keys=False).rstrip()
     console.print(
         Panel(
             Syntax(body, "yaml", theme="ansi_dark", background_color="default"),
             title=f"Spec interpretado  ·  {spec_hash(spec)[:12]}",
+            subtitle=usage_line or None,
             border_style=ACCENT,
         )
     )
+
+
+def _ask_request(console: Console) -> str:
+    table = Table.grid(padding=(0, 2))
+    for index, (title, text) in enumerate(EXAMPLES, start=1):
+        table.add_row(f"[bold {ACCENT}]{index}[/]", f"[bold]{title}[/]  [dim]{text}[/]")
+    console.print(
+        Panel(table, title="Ejemplos (escribe el número para usarlos)", border_style="dim")
+    )
+    request = Prompt.ask("›", console=console).strip()
+    if request.isdigit() and 1 <= int(request) <= len(EXAMPLES):
+        request = EXAMPLES[int(request) - 1][1]
+        console.print(f"[dim]Usando el ejemplo:[/] {request}")
+    return request
 
 
 def _download_bar(console: Console):
@@ -258,25 +322,31 @@ def create_image(console: Console, config: LlmConfig) -> None:
     section(console, "Crear imagen")
     os_name, version = _choose_base(console)
     console.print("\n[bold]Describe la imagen que necesitas[/] [dim](español o inglés)[/]")
-    request = Prompt.ask("›", console=console).strip()
+    request = _ask_request(console)
     if not request:
         console.print("[yellow]No escribiste nada.[/]")
         return
 
-    spec = _interpret(console, config, request)
-    if spec is None:
+    interpreted = _interpret(console, config, request)
+    if interpreted is None:
         return
+    spec, usage, latency = interpreted
     # The base is the user's choice from the menu, not something the model decides.
     spec = spec.model_copy(update={"base": BaseImage(os=os_name, version=version)})
-    _show_spec(console, spec)
+    _show_spec(console, spec, _usage_line(usage, latency))
 
-    name = Prompt.ask("Nombre de la imagen", default="mi-imagen", console=console)
+    remembered = settings.load()
+    name = Prompt.ask(
+        "Nombre de la imagen", default=remembered.last_name or "mi-imagen", console=console
+    )
     if not NAME_RE.match(name):
         console.print("[red]✘ Nombre inválido: usa letras, dígitos, '.', '_' o '-'.[/]")
         return
     if not Confirm.ask("¿Construir esta imagen?", default=True, console=console):
         return
-    verify_after = Confirm.ask("¿Arrancarla y verificarla al terminar? (más lento)", default=False)
+    verify_after = Confirm.ask(
+        "¿Arrancarla y verificarla al terminar? (más lento)", default=False, console=console
+    )
 
     section(console, "Construcción")
     bar = _download_bar(console)
@@ -315,6 +385,10 @@ def create_image(console: Console, config: LlmConfig) -> None:
         console.print(table)
         console.print("[dim]No se descargó ni construyó nada.[/]")
         return
+    except KeyboardInterrupt:
+        bar.stop()
+        console.print("\n[yellow]Construcción interrumpida; la imagen quedó incompleta.[/]")
+        return
     except (BaseImageError, packer.PackerError, RuntimeError) as exc:
         bar.stop()
         console.print(Panel(str(exc), title="Falló la construcción", border_style="red"))
@@ -342,7 +416,11 @@ def create_image(console: Console, config: LlmConfig) -> None:
             )
 
     destination = Path(
-        Prompt.ask("¿Dónde guardo la imagen?", default=str(default_downloads()), console=console)
+        Prompt.ask(
+            "¿Dónde guardo la imagen?",
+            default=remembered.last_destination or str(default_downloads()),
+            console=console,
+        )
     ).expanduser()
     manifest_path = result.manifest
     manifest = Manifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
@@ -354,6 +432,8 @@ def create_image(console: Console, config: LlmConfig) -> None:
         console.print(f"[red]✘ {exc}[/]")
         console.print(f"La imagen sigue en: {result.image}")
         return
+
+    settings.save(settings.Settings(last_name=name, last_destination=str(destination)))
 
     # Plain lines, not a box: a long path inside a border gets cut in the middle.
     console.print()
@@ -387,6 +467,8 @@ def run(console: Console | None = None) -> None:
     console = console or Console()
     banner(console)
     config = ask_api_key(console)
+    if config is None:
+        return
     actions = {
         "1": lambda: list_images(console),
         "2": lambda: upload_base(console),
@@ -405,7 +487,10 @@ def run(console: Console | None = None) -> None:
             if choice == "0":
                 console.print("[dim]Hasta luego.[/]")
                 return
-            actions[choice]()
+            try:
+                actions[choice]()
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Acción cancelada.[/]")
             console.print()
     except (KeyboardInterrupt, EOFError):
-        console.print("\n[dim]Interrumpido. Hasta luego.[/]")
+        console.print("\n[dim]Hasta luego.[/]")

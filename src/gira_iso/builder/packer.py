@@ -57,14 +57,24 @@ def _run(
             env=env,
         )
         assert process.stdout is not None
-        for line in process.stdout:
-            log.write(line)
-            if stream:
-                if on_line is not None:
-                    on_line(line.rstrip("\n"))
-                else:
-                    sys.stderr.write(line)
-        code = process.wait()
+        try:
+            for line in process.stdout:
+                log.write(line)
+                if stream:
+                    if on_line is not None:
+                        on_line(line.rstrip("\n"))
+                    else:
+                        sys.stderr.write(line)
+            code = process.wait()
+        except KeyboardInterrupt:
+            # Packer cleans up its VM on SIGTERM; kill only if it does not leave in time.
+            process.terminate()
+            try:
+                process.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            raise
 
     if code != 0:
         tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-40:]

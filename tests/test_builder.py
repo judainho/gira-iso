@@ -125,3 +125,38 @@ def test_rejected_spec_does_not_download_the_base(tmp_path: Path) -> None:
     with pytest.raises(BuildRejected):
         build_image(spec, work_root=tmp_path)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_ctrl_c_terminates_packer_and_reraises(monkeypatch, tmp_path) -> None:
+    import subprocess
+
+    from gira_iso.builder import packer
+
+    class Stdout:
+        def __iter__(self):
+            raise KeyboardInterrupt
+
+    class FakeProcess:
+        stdout = Stdout()
+        terminated = False
+
+        def terminate(self):
+            self.terminated = True
+
+        def wait(self, timeout=None):
+            return -15
+
+        def kill(self):
+            raise AssertionError("must not kill a process that exited in time")
+
+    process = FakeProcess()
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
+
+    try:
+        packer._run(["packer", "build"], tmp_path / "log", stream=True)
+    except KeyboardInterrupt:
+        pass
+    else:
+        raise AssertionError("KeyboardInterrupt must propagate")
+
+    assert process.terminated

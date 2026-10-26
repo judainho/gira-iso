@@ -10,7 +10,7 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import ValidationError
 
@@ -85,6 +85,42 @@ class OpenAiCompatible:
                 "completion_tokens": response.usage.completion_tokens,
             }
         return Completion(text=message, latency_ms=elapsed, usage=usage)
+
+
+@dataclass(frozen=True)
+class CredentialCheck:
+    """`invalid` means the provider refused the key; `unverified` means we could not tell."""
+
+    status: Literal["ok", "invalid", "unverified"]
+    detail: str = ""
+
+
+def check_credentials(config: LlmConfig, timeout: float = 15.0) -> CredentialCheck:
+    """One-token completion. Network trouble never blocks the user.
+
+    Listing models is not enough: some providers (api.llmapi.ai among them) serve
+    `/models` without authentication, so it would accept any key.
+    """
+    import openai  # imported lazily, like in OpenAiCompatible
+
+    client = openai.OpenAI(
+        base_url=config.base_url, api_key=config.api_key, timeout=timeout, max_retries=0
+    )
+    try:
+        client.chat.completions.create(
+            model=config.model, max_tokens=1, messages=[{"role": "user", "content": "ok"}]
+        )
+    except (openai.AuthenticationError, openai.PermissionDeniedError):
+        return CredentialCheck("invalid", "el proveedor rechazó la clave")
+    except openai.NotFoundError:
+        return CredentialCheck(
+            "unverified", f"el modelo {config.model!r} no existe en el proveedor"
+        )
+    except openai.APIConnectionError as exc:
+        return CredentialCheck("unverified", f"no se pudo conectar: {exc}")
+    except openai.APIStatusError as exc:
+        return CredentialCheck("unverified", f"el proveedor respondió HTTP {exc.status_code}")
+    return CredentialCheck("ok")
 
 
 def config_from_env() -> LlmConfig:

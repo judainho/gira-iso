@@ -94,3 +94,66 @@ def test_attempt_two_does_not_repeat_the_original_request_twice() -> None:
     scripted = Scripted(["nope", VALID_SPEC])
     interpret("install nginx", completer=scripted)
     assert scripted.prompts[1].startswith("<request>")
+
+
+def _raised(cls, **attrs):
+    """An SDK exception without building its HTTP objects, whose package varies by version."""
+    error = cls.__new__(cls)
+    for key, value in attrs.items():
+        setattr(error, key, value)
+    return error
+
+
+def _check_with(monkeypatch, error):
+    import openai
+
+    from gira_iso.nl.client import LlmConfig, check_credentials
+
+    class Completions:
+        def create(self, **kwargs):
+            if error is not None:
+                raise error
+
+    class Chat:
+        completions = Completions()
+
+    class Client:
+        chat = Chat()
+
+        def __init__(self, **kwargs):
+            pass
+
+    monkeypatch.setattr(openai, "OpenAI", Client)
+    return check_credentials(LlmConfig(base_url="http://provider", api_key="k"))
+
+
+def test_credentials_ok(monkeypatch) -> None:
+    assert _check_with(monkeypatch, None).status == "ok"
+
+
+def test_credentials_rejected_by_the_provider(monkeypatch) -> None:
+    import openai
+
+    assert _check_with(monkeypatch, _raised(openai.AuthenticationError)).status == ("invalid")
+
+
+def test_unknown_model_is_unverified_not_invalid(monkeypatch) -> None:
+    import openai
+
+    assert _check_with(monkeypatch, _raised(openai.NotFoundError)).status == ("unverified")
+
+
+def test_network_failure_is_unverified_not_invalid(monkeypatch) -> None:
+    import openai
+
+    error = _raised(openai.APIConnectionError)
+    assert _check_with(monkeypatch, error).status == "unverified"
+
+
+def test_other_http_errors_are_unverified_and_report_the_status(monkeypatch) -> None:
+    import openai
+
+    outcome = _check_with(monkeypatch, _raised(openai.InternalServerError, status_code=500))
+
+    assert outcome.status == "unverified"
+    assert "500" in outcome.detail

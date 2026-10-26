@@ -17,6 +17,7 @@ from gira_iso.builder.manifest import (
     file_sha256,
 )
 from gira_iso.cli import app
+from gira_iso.nl.client import CredentialCheck
 
 runner = CliRunner()
 IMAGE = "gira-iso-ubuntu-24.04.qcow2"
@@ -296,6 +297,7 @@ def _tui_fixture(monkeypatch, tmp_path: Path, *replies: str) -> list:
 
     monkeypatch.setattr(tui, "build_image", fake_build)
     monkeypatch.setattr(tui, "OpenAiCompatible", lambda config: FakeCompleter(*replies))
+    monkeypatch.setattr(tui, "check_credentials", lambda config: CredentialCheck("ok"))
     monkeypatch.delenv("GIRA_ISO_LLM_API_KEY", raising=False)
     return built
 
@@ -361,3 +363,115 @@ def test_subcommands_still_work_after_the_callback_change() -> None:
 
     assert result.exit_code == 0
     assert "gira-iso" in result.output
+
+
+def _spec_reply() -> str:
+    import json
+
+    spec = yaml.safe_load(Path("examples/nginx-web.yaml").read_text(encoding="utf-8"))
+    return json.dumps({"kind": "spec", "spec": spec})
+
+
+def test_an_invalid_key_is_rejected_and_the_user_can_retry(monkeypatch, tmp_path: Path) -> None:
+    import gira_iso.tui as tui
+
+    _tui_fixture(monkeypatch, tmp_path)
+    seen: list[str] = []
+
+    def check(config):
+        seen.append(config.api_key)
+        if config.api_key == "bad":
+            return CredentialCheck("invalid", "el proveedor rechazó la clave")
+        return CredentialCheck("ok")
+
+    monkeypatch.setattr(tui, "check_credentials", check)
+
+    result = runner.invoke(app, [], input="bad\ngood\n0\n")
+
+    assert result.exit_code == 0, result.output
+    assert seen == ["bad", "good"]
+    assert "rechazó la clave" in result.output
+    assert "API key válida" in result.output
+
+
+def test_three_invalid_keys_end_the_session(monkeypatch, tmp_path: Path) -> None:
+    import gira_iso.tui as tui
+
+    _tui_fixture(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        tui, "check_credentials", lambda config: CredentialCheck("invalid", "rechazada")
+    )
+
+    result = runner.invoke(app, [], input="a\nb\nc\n")
+
+    assert result.exit_code == 0
+    assert "Demasiados intentos" in result.output
+    assert "Menú" not in result.output
+
+
+def test_an_unverifiable_key_does_not_block_the_user(monkeypatch, tmp_path: Path) -> None:
+    import gira_iso.tui as tui
+
+    _tui_fixture(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        tui, "check_credentials", lambda config: CredentialCheck("unverified", "sin red")
+    )
+
+    result = runner.invoke(app, [], input="k\n0\n")
+
+    assert "No pude verificar la clave" in result.output
+    assert "Menú" in result.output
+
+
+def test_examples_can_be_picked_by_number_and_tokens_are_shown(monkeypatch, tmp_path: Path) -> None:
+    import gira_iso.tui as tui
+    from gira_iso.nl.client import Completion
+
+    _tui_fixture(monkeypatch, tmp_path, _spec_reply())
+
+    class Counting(FakeCompleter):
+        def complete(self, system: str, user: str):
+            self.last_user = user
+            return Completion(
+                text=self._texts.pop(0),
+                latency_ms=1200,
+                usage={"prompt_tokens": 321, "completion_tokens": 45},
+            )
+
+    completer = Counting(_spec_reply())
+    monkeypatch.setattr(tui, "OpenAiCompatible", lambda config: completer)
+
+    result = runner.invoke(app, [], input=f"k\n4\n2\nweb\nn\nn\n{tmp_path / 'out'}\n0\n")
+
+    assert "docker instalado y htop" in completer.last_user
+    assert "321 entrada" in result.output
+    assert "45 salida" in result.output
+
+
+def test_name_and_destination_are_remembered_for_the_next_run(monkeypatch, tmp_path: Path) -> None:
+    from gira_iso import settings
+
+    _tui_fixture(monkeypatch, tmp_path, _spec_reply())
+    destination = tmp_path / "out"
+
+    runner.invoke(app, [], input=f"k\n4\nun nginx\nweb\ny\nn\n{destination}\n0\n")
+
+    saved = settings.load()
+    assert saved.last_name == "web"
+    assert saved.last_destination == str(destination)
+
+
+def test_ctrl_c_in_an_action_returns_to_the_menu(monkeypatch, tmp_path: Path) -> None:
+    import gira_iso.tui as tui
+
+    _tui_fixture(monkeypatch, tmp_path)
+
+    def boom(console):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(tui, "list_images", boom)
+
+    result = runner.invoke(app, [], input="k\n1\n0\n")
+
+    assert "Acción cancelada" in result.output
+    assert result.output.count("Menú") == 2
