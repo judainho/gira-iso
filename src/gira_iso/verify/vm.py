@@ -7,6 +7,7 @@ a QEMU process behind holding a port or a file lock.
 
 from __future__ import annotations
 
+import contextlib
 import shutil
 import socket
 import subprocess
@@ -264,6 +265,19 @@ class VirtualMachine:
         return (result.stdout + result.stderr).strip()
 
     def stop(self) -> None:
+        """Power the guest off and discard the verification key, however the run ended."""
+        try:
+            self._power_off()
+        finally:
+            # The key opens a user that exists only in this guest's overlay and nothing needs it
+            # afterwards, so it must not sit on the disk. Logs and goss output stay as evidence.
+            key = getattr(self, "key", None)
+            if key is not None:
+                for path in (key, key.with_suffix(".pub")):
+                    with contextlib.suppress(OSError):
+                        path.unlink(missing_ok=True)
+
+    def _power_off(self) -> None:
         if self._process is None:
             return
         if self._process.poll() is None:

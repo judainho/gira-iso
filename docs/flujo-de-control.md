@@ -1,6 +1,6 @@
 # Flujo de control de gira-iso
 
-Estado: **P0 a P4 cerradas** (flujo de control, ver el log de [`plan-v1.md`](plan-v1.md)). Este documento
+Estado: **P0 a P4 cerradas y C1 confirmado con un build real** (flujo de control, ver el log de [`plan-v1.md`](plan-v1.md)). Este documento
 describe el código tal como está y responde: *¿quién decide qué, en qué orden, dónde se puede parar todo
 y qué pasa cuando algo falla?*
 
@@ -296,25 +296,26 @@ nunca carpetas ajenas ni enlaces simbólicos.
 | H4 | Progreso por tres callbacks sueltos | **resuelto**: eventos tipados (los callbacks de `build_image` se conservan por dentro) |
 | H5 | `cli.py` (629) y `tui.py` (678) mezclaban responsabilidades | **resuelto**: paquetes `cli/` y `tui/`, ninguno pasa de 250 líneas |
 | H6 | Lectura de manifests triplicada | **resuelto**: `builder/catalog.py` |
-| H7 | El usuario `packer` con sudo sin contraseña quedaba en la imagen | **control C1 implementado y probado con un sistema simulado; falta confirmarlo con un build real** |
+| H7 | El usuario `packer` con sudo sin contraseña quedaba en la imagen | **resuelto y confirmado con un build real** (26-oct-2026): `finalize.sh` lo elimina y goss, en una VM arrancada desde la imagen final, comprueba que no existe |
 | H8 | Un build fallido dejaba la clave privada | **resuelto**: C2 |
 | H9 | Sin candado entre builds | **resuelto**: C3 |
 | H10 | Sin preflight | **resuelto**: C4 |
 | H11 | Sin timeout global; `.part` huérfano | **resuelto**: C5 y C6 |
 | H12 | `create` y `build` terminaban en traceback ante un fallo de Packer, checksum o verificación | **resuelto**: `guarded` |
 
-Además, al revisar la cancelación apareció un hallazgo nuevo, ya corregido (C5): si `Ctrl+C` llegaba mientras
-arrancaba la VM de verificación, el proceso QEMU quedaba huérfano con la imagen abierta.
+Además aparecieron dos hallazgos nuevos, ya corregidos:
+
+- **C5:** si `Ctrl+C` llegaba mientras arrancaba la VM de verificación, el proceso QEMU quedaba huérfano
+  con la imagen abierta.
+- **Tras el primer build real:** la clave de la VM de *verificación* (`verify/id_ed25519`) seguía en disco.
+  Abre un usuario que solo existe en el overlay de esa VM, pero era el mismo tipo de residuo que H8 y mi
+  propia comprobación (`ls builds/*/`) no la veía por mirar solo el nivel superior. Ahora
+  `VirtualMachine.stop()` la borra siempre; los logs y la salida de goss se conservan como evidencia.
 
 ---
 
 ## 9. Lo que NO está hecho
 
-- **C1 sin build real.** La plantilla, el script y la verificación están probados, pero esta máquina no
-  pudo ejecutar un build con QEMU y KVM. Hasta hacerlo no hay confirmación de que Packer espera el apagado
-  tras `finalize.sh` ni de que `userdel --force` se comporta igual con una sesión SSH abierta. Para
-  confirmarlo: `gira-iso create examples/nginx-web.yaml --name web --verify` debe mostrar en verde los
-  checks de usuario y de sudo del usuario de build, y `ls builds/*/` no debe contener `id_ed25519`.
 - **Reintentos y puntos de reanudación.** Un build interrumpido se descarta y se empieza de cero. Reanudar
   exigiría que Packer lo permitiera; no se intentó.
 - **La caché de bases oficiales nunca se limpia.** No hay comando para borrarlas.

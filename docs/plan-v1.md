@@ -519,3 +519,13 @@ bloqueante), reintentos y reanudación, limpieza de la caché de bases y recetas
 Balance del trabajo: 232 tests al empezar, 352 al terminar; `cli.py` y `tui.py` (1307 líneas) pasaron a
 dos paquetes sin módulos de más de 250 líneas.
 
+**2026-10-26 — Primer build real tras los controles: C1 confirmado.** `gira-iso create
+examples/nginx-web.yaml --name web --verify` terminó en 1 min 6 s y la verificación dio 4 de 4: checksum,
+cloud-init, imagen sin configurar y **23 aserciones de goss** (las 20 de antes más las 3 nuevas: usuario
+`packer`, su home y su regla sudo ausentes). En el log, Packer esperó el apagado tras `finalize.sh`;
+`userdel --force` avisó "user packer is currently used by process 1302" (esperado con la sesión SSH
+abierta) y aun así el script comprobó `build user removed and verified`. La clave del build ya no estaba.
+Lo que la prueba real reveló: `verify/id_ed25519`, la clave de la VM de verificación, seguía en disco
+(modo 600). Se corrigió: `VirtualMachine.stop()` la borra siempre, también si el apagado falla. 4 tests
+nuevos; 356 en total.
+

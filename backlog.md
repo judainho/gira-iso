@@ -24,20 +24,6 @@ GIRA_ISO_LLM_BASE_URL=... GIRA_ISO_LLM_API_KEY=... GIRA_ISO_LLM_MODEL=... \
   uv run gira-iso eval --record eval/runs/baseline.json
 ```
 
-### 1.1b Confirmar con un build real que el usuario de build desaparece (C1)
-
-El control está implementado y probado con un sistema simulado, pero no se ha ejecutado un build con
-QEMU y KVM. Con el entorno listo (`./scripts/check-toolchain.sh` en verde y permiso sobre `/dev/kvm`):
-
-```bash
-gira-iso create examples/nginx-web.yaml --name web --verify
-ls ~/.local/share/gira-iso/builds/*/        # no debe haber id_ed25519
-```
-
-La verificación debe mostrar en verde el usuario `packer` ausente y la regla sudo ausente. Si Packer no
-espera el apagado tras `finalize.sh`, o `userdel` falla con la sesión abierta, el síntoma será un build
-que termina en `PackerError` justo al apagar. Detalle en `docs/flujo-de-control.md`, sección 9.
-
 ### 1.2 Revisar la política como artefacto de seguridad
 
 `src/gira_iso/policy/allowlist.yaml` decide qué paquetes, servicios y rutas se permiten. Es una

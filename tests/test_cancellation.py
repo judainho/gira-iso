@@ -207,3 +207,60 @@ def test_a_nonsense_timeout_falls_back_to_the_default(monkeypatch, value: str) -
     monkeypatch.setenv(TIMEOUT_ENV, value)
 
     assert build_timeout() == DEFAULT_BUILD_TIMEOUT
+
+
+# --- the verification key is a credential too -----------------------------------------------------
+
+
+def _machine_with_key(monkeypatch, tmp_path: Path):
+    machine = VirtualMachine(image=tmp_path / "image.qcow2", workdir=tmp_path / "run")
+    machine.workdir.mkdir()
+    machine.key = machine.workdir / "id_ed25519"
+    machine.key.write_text("private")
+    machine.key.with_suffix(".pub").write_text("public")
+    (machine.workdir / "console.log").write_text("evidence")
+    monkeypatch.setattr(machine, "_ssh_args", lambda: ["ssh", "guest"])
+    monkeypatch.setattr("gira_iso.verify.vm.subprocess.run", lambda *args, **kwargs: None)
+    return machine
+
+
+def test_the_verification_key_is_deleted_when_the_guest_stops(monkeypatch, tmp_path: Path) -> None:
+    machine = _machine_with_key(monkeypatch, tmp_path)
+    machine._process = FakeGuest()
+
+    machine.stop()
+
+    assert not (machine.workdir / "id_ed25519").exists()
+    assert not (machine.workdir / "id_ed25519.pub").exists()
+    assert (machine.workdir / "console.log").read_text() == "evidence"  # the evidence stays
+
+
+def test_the_key_is_deleted_even_if_powering_off_fails(monkeypatch, tmp_path: Path) -> None:
+    machine = _machine_with_key(monkeypatch, tmp_path)
+
+    class Stuck(FakeGuest):
+        def wait(self, timeout=None):
+            raise RuntimeError("cannot stop")
+
+    machine._process = Stuck()
+
+    with pytest.raises(RuntimeError):
+        machine.stop()
+
+    assert not (machine.workdir / "id_ed25519").exists()
+
+
+def test_stopping_a_guest_that_never_started_still_removes_the_key(
+    monkeypatch, tmp_path: Path
+) -> None:
+    machine = _machine_with_key(monkeypatch, tmp_path)  # seed prepared, boot never reached
+
+    machine.stop()
+
+    assert not (machine.workdir / "id_ed25519").exists()
+
+
+def test_a_machine_without_a_key_stops_quietly(tmp_path: Path) -> None:
+    machine = VirtualMachine(image=tmp_path / "image.qcow2", workdir=tmp_path / "run")
+
+    machine.stop()  # no key attribute yet, no process: nothing to do, nothing to fail
