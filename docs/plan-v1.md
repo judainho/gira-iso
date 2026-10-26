@@ -428,3 +428,14 @@ renombraron el paquete (`src/gira_iso`), el comando (`gira-iso`), las variables 
 registrado en D6 como decisión del plan, pero no era el nombre del producto. No había builds
 reales todavía, así que no hubo manifests ni imágenes que migrar; solo se movió el caché de la
 imagen base.
+
+**2026-10-26 — Flujo de control, P0: estado actual documentado.** Nuevo
+[`flujo-de-control.md`](flujo-de-control.md) con cinco diagramas Mermaid (confianza, módulos, flujo
+"crear" por menú y por CLI, estados del menú), la tabla de errores, el ciclo de vida de artefactos y
+doce hallazgos. Los más importantes: el flujo de "crear" está duplicado en `cli.py` y `tui.py`; el
+CLI solo captura `BuildRejected` y deja que un fallo de Packer termine en traceback; no hay preflight
+ni limpieza de builds fallidos; y, por lectura de código, el usuario de build `packer` (sudo NOPASSWD
+y la clave pública del build) no se elimina de la imagen final. Esto último **no está confirmado con
+un build real** y es el primer control a cerrar en P3. Fases siguientes: P1 base común (errores,
+nombres, catálogo de builds), P2 orquestador único, P3 controles, P4 documento final.
+

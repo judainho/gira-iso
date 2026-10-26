@@ -80,6 +80,7 @@ needs more detail), `2` invalid input.
 ## Documents
 
 - [`docs/plan-v1.md`](docs/plan-v1.md) — development plan, phases, acceptance gates and closed decisions.
+- [`docs/flujo-de-control.md`](docs/flujo-de-control.md) — control flow: who decides what, where it can stop, how errors propagate (with diagrams).
 
 ## Quick install
 
