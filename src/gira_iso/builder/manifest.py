@@ -37,11 +37,26 @@ class BaseRef(BaseModel):
     sha256: str
 
 
+class AddedPackage(BaseModel):
+    """A package a person added to the allowlist on the machine that built this image."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    package: str
+    base_version: str
+    component: str
+    version: str
+    added_at: str
+
+
 class PolicyRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     source: str
     sha256: str
+    # Only the additions this image actually uses. Optional, so manifests written before local
+    # additions existed keep validating.
+    local_additions: list[AddedPackage] = Field(default_factory=list)
 
 
 class BuilderInfo(BaseModel):

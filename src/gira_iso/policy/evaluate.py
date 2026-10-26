@@ -8,15 +8,17 @@ the spec values themselves.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from gira_iso.additions import canonical_text, local_packages_by_base, strict_mode
 from gira_iso.bases import merge_into
 from gira_iso.spec.models import FileEntry, Spec
 
@@ -51,6 +53,11 @@ class Allowlist:
     mandatory_packages: frozenset[str]
     file_prefixes: tuple[str, ...]
     forbidden_prefixes: tuple[str, ...]
+    # Packages a person added on this machine, by Ubuntu release (see additions.py). Empty in
+    # strict mode and whenever a specific allowlist file is loaded.
+    local_packages: dict[str, frozenset[str]] = field(default_factory=dict)
+    # Never offered for addition, even if they exist in the archive.
+    never_add: frozenset[str] = frozenset()
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> Allowlist:
@@ -62,10 +69,20 @@ class Allowlist:
             mandatory_packages=frozenset(data.get("mandatory_packages", [])),
             file_prefixes=tuple(data.get("file_prefixes", [])),
             forbidden_prefixes=tuple(data.get("forbidden_prefixes", [])),
+            never_add=frozenset(data.get("never_add", [])),
         )
 
     def base_image(self, os_name: str, version: str) -> dict[str, str] | None:
         return self.base_images.get(os_name, {}).get(version)
+
+    def allows_package(self, name: str, base_version: str) -> bool:
+        """Packaged packages always; local additions only for the release they were checked on."""
+        if name in self.packages:
+            return True
+        return (
+            name in self.local_packages.get(base_version, frozenset())
+            and name not in self.never_add
+        )
 
 
 ENV_VAR = "GIRA_ISO_ALLOWLIST"
@@ -92,9 +109,22 @@ def read_allowlist_text(path: str | None = None) -> tuple[str, str]:
     ).read_text("utf-8")
 
 
+def _local_additions_apply(path: str | None) -> bool:
+    """An explicit allowlist file is a reviewed list: nothing local widens it."""
+    return path is None and not strict_mode()
+
+
 def allowlist_digest(path: str | None = None) -> tuple[str, str]:
-    """Return (label, sha256) of the active allowlist, for build provenance."""
+    """Return (label, sha256) of the active allowlist, for build provenance.
+
+    Local additions are part of the policy that decided, so they are part of the digest. With none
+    the digest is the hash of the file alone, exactly as before additions existed.
+    """
     label, text = read_allowlist_text(path)
+    if _local_additions_apply(path):
+        local = canonical_text()
+        if local:
+            text = f"{text}\n# local additions\n{local}\n"
     return label, hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -104,7 +134,10 @@ def load_allowlist(path: str | None = None) -> Allowlist:
     if not isinstance(data, dict):
         raise ValueError("allowlist must be a mapping")
     data = {**data, "base_images": merge_into(data["base_images"])}
-    return Allowlist.from_mapping(data)
+    loaded = Allowlist.from_mapping(data)
+    if _local_additions_apply(path):
+        loaded = dataclasses.replace(loaded, local_packages=local_packages_by_base())
+    return loaded
 
 
 def _matches(path: str, prefixes: tuple[str, ...]) -> bool:
@@ -181,7 +214,7 @@ def evaluate(spec: Spec, allowlist: Allowlist | None = None) -> Verdict:
         )
 
     for index, package in enumerate(spec.packages):
-        if package not in allowlist.packages:
+        if not allowlist.allows_package(package, spec.base.version):
             violations.append(
                 Violation(
                     code="package.not_allowed",

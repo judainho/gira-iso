@@ -7,6 +7,7 @@ from pathlib import Path
 import typer
 import yaml
 
+from gira_iso.additions import strict_mode
 from gira_iso.cli._app import app
 from gira_iso.cli._shared import guarded, load_spec, print_checks, report, summarise
 from gira_iso.errors import (
@@ -131,6 +132,9 @@ def policy() -> None:
     typer.echo(f"  sha256    {digest}")
     typer.echo(f"  override  set {ENV_VAR}=/path/to/allowlist.yaml")
     typer.echo(f"  packages  {len(active.packages)}")
+    local = sum(len(names) for names in active.local_packages.values())
+    mode = "strict (additions ignored)" if strict_mode() else "additions allowed"
+    typer.echo(f"  local     {local} added on this machine; {mode}")
     typer.echo(f"  services  {len(active.services)}")
     typer.echo(f"  paths     {len(active.file_prefixes)} prefix(es)")
     typer.echo(f"  base      {', '.join(images)}")

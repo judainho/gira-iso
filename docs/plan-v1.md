@@ -552,3 +552,18 @@ no se acepta como carpeta, y una ruta relativa recordada se ignora. Además las 
 se cortan a una línea de pantalla (la de `rm -rf /var/lib/apt/lists/...` ocupaba un párrafo); el
 texto completo sigue en `logs/packer-build.log`. 13 tests nuevos; 370 en total.
 
+**2026-10-26 — Paquetes agregados localmente, fase A: almacén, política y procedencia.** Primer paso
+para que la lista permitida pueda crecer sin editar el YAML a mano. Diseño: la IA propone, el código
+verifica contra el archivo de Ubuntu y una persona aprueba; el modelo nunca aprueba. Esta fase no toca
+al modelo ni a la red: `additions.py` guarda en `~/.local/share/gira-iso/allowlist-additions.yaml` cada
+aprobación (paquete, versión de Ubuntu, componente, versión, fecha, hash de la petición) con un registro
+de auditoría de solo-agregar. La política acepta un paquete si está en la lista empaquetada o si fue
+agregado **para esa versión de Ubuntu** (`Allowlist.local_packages`), salvo que figure en el nuevo
+`never_add` (telnetd, ubuntu-desktop…). `allowlist_digest` incluye las adiciones activas, y sin
+ellas es **idéntico al hash de antes** (ninguna imagen existente cambia de procedencia); el manifest
+lista las que la imagen usa (`policy.local_additions`, opcional, así los manifests viejos validan). El
+modo estricto (`GIRA_ISO_STRICT=1`, o implícito con `GIRA_ISO_ALLOWLIST` salvo
+`GIRA_ISO_ALLOW_LOCAL=1`) ignora y rechaza las adiciones. El prompt las marca "(added locally, only for
+ubuntu X)". 41 tests nuevos; 411 en total. Siguen: B (consulta a Launchpad y comando `allow`), C (la IA
+traduce nombres y se integra al flujo), D (menú y documentación).
+

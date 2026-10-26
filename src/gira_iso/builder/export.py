@@ -90,6 +90,14 @@ def describe(manifest: Manifest, build_dir: Path) -> list[tuple[str, str]]:
         ("Base sha256", manifest.base.sha256),
         ("Paquetes", ", ".join(manifest.packages) or "-"),
         ("Servicios", ", ".join(manifest.services) or "-"),
+        (
+            "Adiciones locales",
+            ", ".join(
+                f"{a.package} ({a.component} {a.version}, {a.added_at[:10]})"
+                for a in manifest.policy.local_additions
+            )
+            or "-",
+        ),
         ("Spec sha256", manifest.spec_sha256),
         ("Política", f"{manifest.policy.source}  ({manifest.policy.sha256[:16]}…)"),
         (

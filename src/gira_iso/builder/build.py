@@ -14,12 +14,19 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from gira_iso.additions import list_additions
 from gira_iso.bases import builds_dir
 from gira_iso.builder import packer
 from gira_iso.builder.base import ensure_base_image
 from gira_iso.builder.catalog import FAILED_MARKER
 from gira_iso.builder.lock import build_lock
-from gira_iso.builder.manifest import BaseRef, BuilderInfo, PolicyRef, build_manifest
+from gira_iso.builder.manifest import (
+    AddedPackage,
+    BaseRef,
+    BuilderInfo,
+    PolicyRef,
+    build_manifest,
+)
 from gira_iso.builder.render import (
     BUILD_KEY_MARKER,
     IMAGE_NAME,
@@ -102,9 +109,20 @@ def _generate_key(path: Path) -> str:
     return path.with_suffix(".pub").read_text(encoding="utf-8").strip()
 
 
-def _policy_ref() -> PolicyRef:
+def _policy_ref(spec: Spec) -> PolicyRef:
     source, digest = allowlist_digest()
-    return PolicyRef(source=source, sha256=digest)
+    used = [
+        AddedPackage(
+            package=a.package,
+            base_version=a.base_version,
+            component=a.component,
+            version=a.version,
+            added_at=a.added_at,
+        )
+        for a in list_additions()
+        if a.base_version == spec.base.version and a.package in spec.packages
+    ]
+    return PolicyRef(source=source, sha256=digest, local_additions=used)
 
 
 def _virtual_size(path: Path) -> int:
@@ -193,7 +211,7 @@ def build_image(
                     url=reference["url"],
                     sha256=base_sha,
                 ),
-                policy=_policy_ref(),
+                policy=_policy_ref(spec),
                 builder=BuilderInfo(
                     packer_version=packer.version(),
                     plugin_version=PLUGIN_VERSION,

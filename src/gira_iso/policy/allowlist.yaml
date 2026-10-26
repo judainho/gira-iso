@@ -105,6 +105,22 @@ file_prefixes:
   - /etc/sysctl.d/
   - /etc/systemd/journald.conf
 
+# Packages that are never offered for addition from a machine, even though they exist in the
+# Ubuntu archive: remote-login daemons that send credentials in clear and desktop or server
+# metapackages that drag in hundreds of packages. Adding to this list is a reviewed change.
+never_add:
+  - kubuntu-desktop
+  - lubuntu-desktop
+  - rsh-redone-server
+  - rsh-server
+  - tftpd
+  - tftpd-hpa
+  - telnetd
+  - ubuntu-desktop
+  - ubuntu-desktop-minimal
+  - ubuntu-server
+  - xubuntu-desktop
+
 # Defence in depth, not the primary control: even if a prefix above is widened by
 # mistake, these paths stay unwritable.
 forbidden_prefixes:

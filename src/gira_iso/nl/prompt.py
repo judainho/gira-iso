@@ -91,6 +91,18 @@ def _entry(name: str, info: dict | None) -> str:
     return f"{text} (also: {', '.join(aliases)})" if aliases else text
 
 
+def _local_lines(allowlist: Allowlist) -> list[str]:
+    """Packages a person added on this machine, with the Ubuntu releases they were checked on."""
+    releases: dict[str, list[str]] = {}
+    for version, names in sorted(allowlist.local_packages.items()):
+        for name in names:
+            releases.setdefault(name, []).append(version)
+    return [
+        f"  {name} (added locally, only for ubuntu {', '.join(versions)})"
+        for name, versions in sorted(releases.items())
+    ]
+
+
 def catalog_section(allowlist: Allowlist) -> str:
     """The allowed software, with descriptions where the catalog has them."""
     data = yaml.safe_load(
@@ -102,6 +114,7 @@ def catalog_section(allowlist: Allowlist) -> str:
     lines = ["Allowed catalog. This is the complete list of what may appear in a spec.", ""]
     lines.append("Packages:")
     lines += [_entry(name, described_packages.get(name)) for name in sorted(allowlist.packages)]
+    lines += _local_lines(allowlist)
     lines += ["", "Services:"]
     lines += [_entry(name, described_services.get(name)) for name in sorted(allowlist.services)]
     external = data.get("programs_outside_the_catalog", [])

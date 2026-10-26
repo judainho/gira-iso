@@ -26,7 +26,8 @@ def explain(interpretation: Interpretation, spec: Spec, allowlist: Allowlist) ->
         "package": set(spec.packages),
         "service": set(spec.services.enable),
     }
-    allowed = allowlist.packages | allowlist.services
+    local = allowlist.local_packages.get(spec.base.version, frozenset())
+    allowed = allowlist.packages | allowlist.services | local
 
     understood = []
     discarded = 0
