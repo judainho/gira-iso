@@ -599,3 +599,17 @@ no consulta nada ni muestra indicador. Probado contra Launchpad real con un mode
 `nodejs (universe/web)`; `opencode` no se ofrece; `telnetd` se rechaza sin red. La prueba con el modelo
 real queda pendiente de la clave. 45 tests nuevos; 519 en total.
 
+**2026-10-26 — Paquetes agregados localmente, fase D: pantalla 5 del menú y documentación. Cierre.** La
+opción **5 · Paquetes permitidos** muestra los oficiales (conteo), los agregados en este equipo y permite
+agregar uno (nombre → versión de Ubuntu → archivo → advertencia → confirmación, "no" por defecto) o quitar
+uno por número con confirmación; en modo estricto solo muestra. La comprobación "de un nombre a una
+propuesta o rechazo" quedó en un solo lugar (`workflow/additions.check_package`), usado por el comando
+`allow`, la pantalla 5 y el flujo de crear. `docs/flujo-de-control.md` incorpora el paso 1b al diagrama
+del flujo, un diagrama propio de la frontera de confianza al ampliar la lista (modelo → código →
+Launchpad → persona), los controles A1 a A8, los códigos de salida nuevos, los artefactos nuevos y lo
+que no está hecho. README y backlog actualizados. 13 tests nuevos; 532 en total.
+Balance de las cuatro fases: de 370 a 532 tests, ocho módulos nuevos (`additions`, `archive`,
+`proposals`, `nl/suggest`, `workflow/additions`, `cli/allow`, `tui/allowed`) y un cambio de contrato
+mínimo y compatible (`policy.local_additions` opcional en el manifest). Pendiente: probar la traducción
+de nombres con el modelo real.
+

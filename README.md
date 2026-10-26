@@ -28,6 +28,7 @@ written to disk) and then offers:
    download option for the official ones.
 4. **Create an image**: choose the base, describe the image in Spanish or English (or pick one of
    the examples), review the interpreted spec and token usage, then watch the build.
+5. **Allowed packages**: the packaged list plus what you added on this machine; add or remove one.
 
 The interpreter is told the allowed catalog (`policy/allowlist.yaml`, described in
 `src/gira_iso/nl/catalog.yaml`), so it can tell a **package** (`docker` becomes `docker.io`) from
@@ -36,6 +37,9 @@ a **program** that apt does not provide (opencode, nvm, the official Docker CE).
 claims are checked against the spec and the policy before you see them. If the policy rejects the
 spec, the violations go back to the model so it can correct itself, and nothing is built unless
 the final spec passes.
+
+If the request needs a real Ubuntu package that is not on the allowlist (say, `nodejs`), the menu
+offers to add it; see "Extending the allowlist" below.
 
 The last image name and destination are remembered. `Ctrl+C` returns to the menu.
 
@@ -66,7 +70,8 @@ available but hidden from the main help: they are the advanced surface.
 
 For scripts and CI, `--json` keeps stdout for one JSON object (progress goes to stderr) and
 `--non-interactive` never prompts: the key must be in `GIRA_ISO_LLM_API_KEY`, `--yes` is implied,
-and a request that needs more detail exits `1` listing the questions.
+and a request that needs more detail exits `1` listing the questions. `added` and `addable` in the JSON
+list packages added during the run and packages that could be added.
 
 ```bash
 export GIRA_ISO_LLM_API_KEY=...
@@ -78,6 +83,29 @@ gira-iso show web --json | jq .base
 Exit codes: `0` success, `1` the policy or the verification rejected something (or the model
 needs more detail), `2` invalid input, `3` the environment cannot do it (Packer, QEMU, the base
 image download), `130` interrupted with `Ctrl+C`.
+
+## Extending the allowlist
+
+The packaged list has 42 packages. When a request needs a real Ubuntu package that is not on it, the
+model is only asked which package a word means ("node" is `nodejs`); the code then asks the Ubuntu
+archive (Launchpad) whether that release publishes it, and **you** approve each package. The model
+never approves anything, and `--yes` never answers this question.
+
+```bash
+gira-iso allow add nodejs --base 24.04    # checks the archive, shows what it found, asks
+gira-iso allow list                       # what you added on this machine
+gira-iso allow remove nodejs
+```
+
+- Only `main` and `universe` are offered; `multiverse`, `restricted` and a short `never_add` list
+  (telnetd, desktop metapackages…) are refused. A package is allowed **for the Ubuntu release it was
+  checked against**. It runs its install scripts as root and pulls its dependencies, which are not
+  reviewed.
+- Additions are stored in `~/.local/share/gira-iso/allowlist-additions.yaml` with an audit log, are part
+  of the policy digest, and are listed in the manifest of every image that uses them.
+- **Strict mode** ignores and refuses additions: `GIRA_ISO_STRICT=1`, or automatically when you point
+  `GIRA_ISO_ALLOWLIST` at your organisation's list (`GIRA_ISO_ALLOW_LOCAL=1` overrides that).
+- With `--non-interactive` nothing is asked; `--json` lists `addable` packages and the command to add them.
 
 ## Documents
 

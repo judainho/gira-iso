@@ -26,7 +26,8 @@ from gira_iso.cli._app import app
 from gira_iso.cli._shared import guarded
 from gira_iso.errors import EXIT_INVALID, EXIT_OK, EXIT_REJECTED
 from gira_iso.policy.evaluate import load_allowlist
-from gira_iso.proposals import MAX_PROPOSALS, WARNING, Proposal, Refusal, assess, precheck
+from gira_iso.proposals import MAX_PROPOSALS, WARNING, Proposal, Refusal
+from gira_iso.workflow.additions import check_package
 
 allow_app = typer.Typer(
     add_completion=False,
@@ -53,13 +54,7 @@ def add(
     allowlist = load_allowlist()
     refused = False
     for name in dict.fromkeys(packages):  # in order, without repeats
-        settled = precheck(name, base, allowlist)  # no network for what is already settled
-        if settled is not None:
-            typer.echo(f"  refused   {name}: {settled.reason}")
-            refused = True
-            continue
-        found = lookup(name, base)
-        verdict = assess(name, found, base, allowlist)
+        verdict = check_package(name, base, allowlist, lookup=lookup)
         if isinstance(verdict, Refusal):
             typer.echo(f"  refused   {name}: {verdict.reason}")
             refused = True

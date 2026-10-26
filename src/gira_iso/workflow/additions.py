@@ -67,6 +67,24 @@ def candidates(
     return found[:MAX_LOOKUPS]
 
 
+def check_package(
+    name: str,
+    base_version: str,
+    allowlist: Allowlist,
+    *,
+    lookup: Lookup,
+    requested_as: str | None = None,
+) -> Proposal | Refusal:
+    """Everything between a package name and a question to a person.
+
+    Rules that need no network are applied first, so what is already settled costs no lookup.
+    """
+    settled = precheck(name, base_version, allowlist)
+    if settled is not None:
+        return settled
+    return assess(name, lookup(name, base_version), base_version, allowlist, requested_as)
+
+
 def worth_asking(
     spec: Spec, interpretation: Interpretation, allowlist: Allowlist, base_version: str
 ) -> bool:
@@ -92,12 +110,7 @@ def gather(
     proposals: list[Proposal] = []
     refusals: list[Refusal] = []
     for name, word in candidates(spec, interpretation, allowlist, base_version, suggest):
-        settled = precheck(name, base_version, allowlist)
-        verdict = (
-            settled
-            if settled is not None
-            else assess(name, lookup(name, base_version), base_version, allowlist, word)
-        )
+        verdict = check_package(name, base_version, allowlist, lookup=lookup, requested_as=word)
         if isinstance(verdict, Proposal):
             proposals.append(verdict)
         elif verdict.code in SURPRISING:

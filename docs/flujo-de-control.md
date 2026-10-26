@@ -1,6 +1,6 @@
 # Flujo de control de gira-iso
 
-Estado: **P0 a P4 cerradas y C1 confirmado con un build real** (flujo de control, ver el log de [`plan-v1.md`](plan-v1.md)). Este documento
+Estado: **P0 a P4 cerradas, C1 confirmado con un build real, y la lista permitida ya se puede ampliar** (flujo de control, ver el log de [`plan-v1.md`](plan-v1.md)). Este documento
 describe el código tal como está y responde: *¿quién decide qué, en qué orden, dónde se puede parar todo
 y qué pasa cuando algo falla?*
 
@@ -34,7 +34,9 @@ flowchart LR
 
 | Pieza | Puede | No puede |
 |---|---|---|
-| Modelo (`nl/`) | Proponer un spec, preguntas o un rechazo | Escribir scripts, URLs, repositorios; ampliar la lista de paquetes |
+| Modelo (`nl/`) | Proponer un spec, preguntas o un rechazo, y **nombres** de paquetes para una palabra | Escribir scripts, URLs, repositorios; **aprobar** nada ni ampliar la lista |
+| Archivo de Ubuntu (`archive.py`) | Decir, por HTTPS, si Ubuntu publica un paquete para esa versión, y en qué componente | Decidir si es aceptable |
+| Persona | Aprobar, paquete por paquete, ampliar la lista de este equipo | — |
 | Esquema (`spec/models.py`) | Rechazar formas inválidas (campos extra, tamaños, nombres) | Decidir qué paquetes son seguros |
 | Política (`policy/`) | Rechazar paquetes, servicios, rutas, bases y nombres de usuario reservados | Nada con red ni con el sistema de archivos (función pura) |
 | `build_image` | Volver a evaluar la política (puerta independiente del modelo) y construir | Aceptar un spec que no pasó |
@@ -60,6 +62,7 @@ flowchart TB
     subgraph WF[Orden del flujo]
         WFC[workflow/create.py<br/>run_create]
         PRE[workflow/preflight.py]
+        WAD[workflow/additions.py]
         PORT[workflow/ports.py<br/>Io, Review, Decision]
         EVT[workflow/events.py]
     end
@@ -68,6 +71,7 @@ flowchart TB
         CLN[nl/client.py]
         PRM[nl/prompt.py + catalog.yaml]
         EXP[nl/explain.py]
+        SUG[nl/suggest.py]
     end
     subgraph CORE[Núcleo determinista]
         POL[policy/evaluate.py]
@@ -79,6 +83,9 @@ flowchart TB
         EXPT[builder/export.py]
         CAT[builder/catalog.py]
         MAN[builder/manifest.py]
+        ARC[archive.py]
+        PRP[proposals.py]
+        ADD[additions.py]
     end
     ERR[errors.py<br/>GiraError y códigos de salida]
     NAM[naming.py]
@@ -92,7 +99,14 @@ flowchart TB
     CLI --> CAT & EXPT & PSH & NAM
     TUI --> CAT & EXPT & BSE & SET & NAM & PRE
     WFC --> PORT & EVT & PRE
-    WFC --> SES & EXP & BLD & VER & EXPT & CAT
+    WFC --> SES & EXP & BLD & VER & EXPT & CAT & WAD
+    CLI --> WAD
+    TUI --> WAD
+    WAD --> SUG & ARC & PRP
+    WFC --> ADD
+    PRP --> POL
+    POL --> ADD
+    BLD --> ADD
     SES --> CLN --> PRM
     SES --> POL
     EXP --> POL
@@ -130,7 +144,12 @@ flowchart TD
     CV -- pregunta y nadie responde --> S2([NEEDS_DETAIL])
     CV -- no produjo JSON válido --> S3([INTERPRET_ERROR])
     CV -- spec con violaciones --> S4([POLICY_REJECTED<br/>sin construir])
-    CV -- spec --> EX[2. explain: verificar lo que dice el modelo]
+    CV -- spec --> AD{"1b. ¿hay paquetes reales<br/>fuera de la lista?"}
+    AD -- no --> EX[2. explain: verificar lo que dice el modelo]
+    AD -- sí --> OF[Launchpad + reglas<br/>io.propose, la persona aprueba]
+    OF -- aprobó alguno --> RI[guardar y reinterpretar una vez]
+    OF -- nada --> EX
+    RI --> EX
     T -- no --> B0[la base la elige la persona]
     EX --> B0
     B0 --> RV{"4. ¿request.review?"}
@@ -165,6 +184,39 @@ Reglas del orquestador:
 - La base la elige la persona (`request.base`); lo que el modelo escriba en `base` se reemplaza.
 - El preflight corre **antes** de tocar el modelo: una máquina que no puede construir no gasta tokens.
 
+### Ampliar la lista permitida (paso 1b)
+
+La lista de 42 paquetes es la puerta de seguridad, así que ampliarla no puede quedar en manos del mismo
+modelo que lee el texto de la persona (una inyección de instrucciones lo convertiría en su propio
+aprobador). Por eso **tres piezas distintas** intervienen y ninguna decide sola:
+
+```mermaid
+flowchart LR
+    W["Palabra de la persona<br/>'node'"] --> M["Modelo (nl/suggest.py)<br/>propone nombres: nodejs"]
+    M -->|solo nombres| V["Código: forma del nombre<br/>y reglas (proposals.py)"]
+    V --> L["Launchpad por HTTPS<br/>¿lo publica Ubuntu para esa versión?"]
+    L -->|existe en main o universe| P{{"La persona aprueba<br/>paquete por paquete, por defecto no"}}
+    L -->|no existe, multiverse, never_add| R([rechazado: se explica])
+    P -->|sí| S[("allowlist-additions.yaml<br/>+ log de auditoría")]
+    P -->|no| R2([no se guarda nada])
+    S --> RI[reinterpretar una vez<br/>con el paquete en el catálogo]
+```
+
+Qué hace cada pieza, y qué no:
+
+- **El modelo** solo traduce una palabra a hasta 3 nombres. Si falla, devuelve vacío; si propone algo que no es un
+  nombre de paquete (un comando, una URL), se descarta. No aprueba ni consulta nada.
+- **El código** aplica las reglas sin red (nombre válido, no está ya permitido, no figura en `never_add`) y luego
+  pregunta al archivo de Ubuntu. Solo se ofrecen `main` y `universe`, un máximo de 5 por petición y 6 consultas.
+- **La persona** ve la versión, el componente y la sección que dice el archivo —no la descripción del modelo—
+  y la advertencia de que el paquete se instala como root y arrastra dependencias. La respuesta por defecto es
+  "no", y `--yes` solo omite la confirmación de construir: **nunca responde esta pregunta**.
+
+Lo aprobado vale **solo para la versión de Ubuntu contra la que se comprobó** (22.04 y 24.04 no tienen los mismos
+paquetes), se guarda con el hash de la petición que lo motivó y entra en el digest de la política y en el
+manifest de cada imagen que lo usa. El modo estricto (`GIRA_ISO_STRICT=1`, o implícito con
+`GIRA_ISO_ALLOWLIST` salvo `GIRA_ISO_ALLOW_LOCAL=1`) ignora y rechaza cualquier adición.
+
 ### Cómo lo presenta cada interfaz
 
 | Aspecto | Menú (`tui._TuiIo`) | CLI (`cli._CliIo`) |
@@ -193,6 +245,8 @@ stateDiagram-v2
     Menu --> SubirBase: 2
     Menu --> VerBases: 3
     Menu --> Crear: 4
+    Menu --> Permitidos: 5
+    Permitidos --> Menu
     Menu --> [*]: 0, Ctrl+C o EOF
     Listar --> AccionesImagen: elegir nº
     Listar --> Limpiar: limpiar
@@ -224,9 +278,9 @@ en traceback.
 | Código | Significa | Clases |
 |---|---|---|
 | `0` | éxito (o la persona dijo "no") | — |
-| `1` | algo se rechazó: política, verificación fallida, el modelo rechaza o necesita más detalle | `BuildRejected`, `ExportError` (rechazo), resultados `MODEL_REJECTED`, `NEEDS_DETAIL`, `POLICY_REJECTED` |
-| `2` | entrada inválida | `InvalidImageName`, `CatalogError`, `VerificationError`, `InterpretError`, `UserBaseError`, `PushError`, `ExportError` (entrada inválida) |
-| `3` | el entorno no puede | `EnvironmentProblem`, `BuildBusy`, `BuildError`, `BaseImageError`, `PackerError`, `VmError` |
+| `1` | algo se rechazó: política, verificación fallida, el modelo rechaza o necesita más detalle, o el modo estricto impide ampliar la lista | `BuildRejected`, `AdditionsDisabled`, `ExportError` (rechazo), resultados `MODEL_REJECTED`, `NEEDS_DETAIL`, `POLICY_REJECTED` |
+| `2` | entrada inválida | `InvalidImageName`, `CatalogError`, `VerificationError`, `InterpretError`, `UserBaseError`, `PushError`, `UnknownRelease`, `ExportError` (entrada inválida) |
+| `3` | el entorno no puede | `EnvironmentProblem`, `BuildBusy`, `BuildError`, `BaseImageError`, `PackerError`, `VmError`, `ArchiveUnavailable` |
 | `130` | interrumpido con `Ctrl+C` | — |
 
 El menú atrapa `GiraError` y `OSError` en un panel, y `Ctrl+C` lo devuelve al menú (si ya estaba
@@ -247,6 +301,8 @@ construyendo, avisa que la imagen quedó incompleta).
 | Directorio de build | `build_image` | `~/.local/share/gira-iso/builds/<fecha>-<hash>[-n]/` | con `delete`; si falla queda marcado `FAILED` y lo borra `clean` (C2) |
 | Clave SSH del build `id_ed25519` | `build_image` | dentro del directorio de build | **siempre, al terminar el build**: éxito, fallo o `Ctrl+C` (C2) |
 | Usuario `packer` dentro de la VM | cloud-init del build | la VM | `finalize.sh`, antes de apagar (C1) |
+| Paquetes agregados a la lista | una aprobación (menú o `allow add`) | `~/.local/share/gira-iso/allowlist-additions.yaml` | `allow remove`, o la opción 5 del menú |
+| Registro de auditoría de adiciones | cada alta o baja | `~/.local/share/gira-iso/allowlist-additions.log` (JSON por línea) | nunca |
 | Plugin de Packer | `packer init` | `~/.packer.d/` | nunca |
 | Imagen y manifest | build correcto | `builds/<id>/image/` y `manifest.json` | con `delete` |
 | Copia exportada | menú o `download` | carpeta elegida | a mano |
@@ -283,6 +339,19 @@ nunca carpetas ajenas ni enlaces simbólicos.
 | C4 | Preflight: herramientas, `/dev/kvm` y espacio, con el comando exacto de arreglo | `workflow/preflight.py` | `EnvironmentProblem`, código 3 |
 | C5 | La VM de verificación se detiene si falla o se interrumpe su arranque; la descarga no deja `.part`, falla limpio y tiene timeout de red | `verify/vm.py`, `builder/base.py` | — |
 | C6 | Timeout global de Packer (45 min, `GIRA_ISO_BUILD_TIMEOUT_MINUTES`; 10 para `init`) | `builder/packer.py` | `PackerError`, código 3 |
+
+### Ampliar la lista (adiciones locales)
+
+| Id | Control | Dónde | Si falla |
+|---|---|---|---|
+| A1 | El modelo solo propone **nombres**, validados y acotados a 3; cualquier fallo devuelve vacío | `nl/suggest.py` | sin sugerencias; el flujo sigue |
+| A2 | La existencia la comprueba el código contra el archivo de Ubuntu; solo cuentan Release, Updates y Security | `archive.py` | `ArchiveUnavailable` (3): nunca se confunde con "no existe" |
+| A3 | Reglas sin red: `main`/`universe`, `never_add`, ya permitido, nombre válido, tope de 5 | `proposals.py` | `Refusal`, se explica |
+| A4 | Aprobación humana por paquete, por defecto "no"; `--yes` no la responde | `Io.propose`, `cli allow` | no se guarda |
+| A5 | Lo aprobado vale para una versión de Ubuntu y queda con auditoría y el hash de la petición | `additions.py` | — |
+| A6 | Procedencia: el digest de la política incluye las adiciones (sin ellas es idéntico al anterior) y el manifest las lista | `policy/evaluate.py`, `builder/build.py` | — |
+| A7 | Modo estricto: ni se leen, ni se consultan, ni se guardan | `additions.strict_mode` | `AdditionsDisabled` (1) |
+| A8 | Los servicios no se amplían; una lista personalizada o un spec ya hecho tampoco | `workflow/create.py` | — |
 
 ---
 
@@ -325,6 +394,13 @@ Además aparecieron dos hallazgos nuevos, ya corregidos:
 - **`packer init` instala el plugin en `~/.packer.d` sin verificar el binario descargado.**
 - **Software fuera de apt** (opencode, nvm…): el sistema lo reconoce y lo explica, pero no puede instalarlo.
   Haría falta un mecanismo de recetas aprobadas en la política.
+- **Las dependencias de un paquete agregado no se enumeran.** Permitir `nodejs` permite todo su árbol de
+  dependencias; Launchpad no lo da. La confirmación lo dice, pero no lo muestra.
+- **Los servicios no se pueden ampliar.** Solo los paquetes: habilitar una unidad arbitraria es más riesgoso
+  que instalar un paquete. Un paquete agregado que necesite un servicio habilitado a mano no lo tendrá.
+- **El modelo real no se ha probado en la traducción de nombres** (`nl/suggest.py`). Con un modelo simulado y
+  el archivo real funciona (`node` → `nodejs`); falta ver cómo responde `deepseek-v4.1-flash-1017`.
+- **`multiverse` y `restricted` quedan fuera** a propósito: software no libre o sin soporte.
 - **El CLI no exporta a una carpeta** al crear (existe `download`); es una diferencia de presentación, no de
   control.
 

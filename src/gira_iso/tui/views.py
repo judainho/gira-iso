@@ -135,6 +135,7 @@ MENU = (
     ("2", "Subir imagen base"),
     ("3", "Lista de imágenes base"),
     ("4", "Crear imagen"),
+    ("5", "Paquetes permitidos"),
     ("0", "Salir"),
 )
 

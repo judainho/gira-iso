@@ -57,6 +57,10 @@ verificación de checksum y formatos. Nunca se ejecutó contra una nube real.
 
 ---
 
+- **Mostrar las dependencias de un paquete que se va a agregar.** Permitir `nodejs` permite todo su
+  árbol, y Launchpad no lo da; hoy solo se avisa. Haría falta una consulta a otra fuente.
+- **Probar la traducción de nombres con el modelo real** (`nl/suggest.py`): pedir `nginx y node`.
+- **Ampliar servicios habilitables** como las adiciones de paquetes, si hace falta (hoy son 11, curados).
 - **Reintentos y puntos de reanudación del build.** Hoy un build interrumpido se descarta entero.
 - **Comando para limpiar la caché de bases oficiales** (`~/.cache/gira-iso/images`); crece sin límite.
 - **Recetas aprobadas para software fuera de apt** (opencode, nvm, Docker CE oficial): el sistema lo

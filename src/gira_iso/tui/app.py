@@ -14,6 +14,7 @@ from gira_iso.nl.client import (
     LlmConfig,
     check_credentials,
 )
+from gira_iso.tui.allowed import allowed_packages
 from gira_iso.tui.bases import list_bases, upload_base
 from gira_iso.tui.create import create_image
 from gira_iso.tui.images import list_images
@@ -65,6 +66,7 @@ def run(console: Console | None = None) -> None:
         "2": lambda: upload_base(console),
         "3": lambda: list_bases(console),
         "4": lambda: create_image(console, config),
+        "5": lambda: allowed_packages(console),
     }
     first = True
     try:
