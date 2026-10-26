@@ -75,7 +75,8 @@ gira-iso show web --json | jq .base
 ```
 
 Exit codes: `0` success, `1` the policy or the verification rejected something (or the model
-needs more detail), `2` invalid input.
+needs more detail), `2` invalid input, `3` the environment cannot do it (Packer, QEMU, the base
+image download), `130` interrupted with `Ctrl+C`.
 
 ## Documents
 
@@ -120,7 +121,7 @@ uv run gira-iso eval
 ```
 
 Every command exits `0` on success, `1` when the policy or the verification rejects
-something, and `2` on invalid input.
+something, `2` on invalid input and `3` when the environment fails; none ends in a traceback.
 
 ## Requirements
 

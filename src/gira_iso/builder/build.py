@@ -24,6 +24,7 @@ from gira_iso.builder.render import (
     effective_services,
     render,
 )
+from gira_iso.errors import EXIT_ENVIRONMENT, EXIT_REJECTED, GiraError
 from gira_iso.policy.evaluate import (
     Allowlist,
     Verdict,
@@ -35,7 +36,15 @@ from gira_iso.spec.canonical import spec_hash
 from gira_iso.spec.models import Spec
 
 
-class BuildRejected(RuntimeError):
+class BuildError(GiraError):
+    """The build could not run or produced nothing usable."""
+
+    exit_code = EXIT_ENVIRONMENT
+
+
+class BuildRejected(GiraError):
+    exit_code = EXIT_REJECTED
+
     def __init__(self, verdict: Verdict) -> None:
         super().__init__(f"spec rejected with {len(verdict.violations)} violation(s)")
         self.verdict = verdict
@@ -52,7 +61,7 @@ def _build_dir(work_root: Path, sha: str) -> Path:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     directory = work_root / f"{stamp}-{sha[:12]}"
     if directory.exists():
-        raise RuntimeError(f"build directory already exists: {directory}")
+        raise BuildError(f"build directory already exists: {directory}")
     directory.mkdir(parents=True)
     return directory
 
@@ -140,7 +149,7 @@ def build_image(
 
     image = build_dir / "image" / IMAGE_NAME
     if not image.is_file():
-        raise RuntimeError(f"packer finished but produced no image at {image}")
+        raise BuildError(f"packer finished but produced no image at {image}")
 
     step("Registrando el manifest con hashes y procedencia")
     manifest = build_manifest(

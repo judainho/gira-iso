@@ -12,11 +12,14 @@ from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from gira_iso.errors import EXIT_ENVIRONMENT, GiraError
 from gira_iso.policy.evaluate import Allowlist
 
 
-class BaseImageError(RuntimeError):
-    pass
+class BaseImageError(GiraError):
+    """No trustworthy base could be obtained: network, checksum or a missing pin."""
+
+    exit_code = EXIT_ENVIRONMENT
 
 
 def cache_dir() -> Path:

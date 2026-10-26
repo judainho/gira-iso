@@ -439,3 +439,10 @@ y la clave pública del build) no se elimina de la imagen final. Esto último **
 un build real** y es el primer control a cerrar en P3. Fases siguientes: P1 base común (errores,
 nombres, catálogo de builds), P2 orquestador único, P3 controles, P4 documento final.
 
+**2026-10-26 — Flujo de control, P1: base común.** Todas las excepciones esperadas heredan de
+`errors.GiraError`, que lleva su código de salida (`0` éxito, `1` rechazado, `2` entrada inválida,
+`3` entorno nuevo, `130` interrumpido). Cada comando del CLI está envuelto por `_guarded`: un fallo de
+Packer, de checksum de la base o de verificación ya no termina en traceback (H12). `naming.py` es la
+única regla de nombres (64 caracteres; el menú aceptaba 63) y `builder/catalog.py` el único lugar que
+lee manifests y resuelve referencias (antes triplicado). 26 tests nuevos; 258 en total.
+

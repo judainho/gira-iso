@@ -14,12 +14,14 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from gira_iso.errors import EXIT_ENVIRONMENT, GiraError
+
 VERIFY_USER = "gira-iso"
 VERIFY_HOSTNAME = "gira-iso-verify"
 
 
-class VmError(RuntimeError):
-    pass
+class VmError(GiraError):
+    exit_code = EXIT_ENVIRONMENT
 
 
 def free_port() -> int:

@@ -11,9 +11,10 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from pydantic import ValidationError
-
-from gira_iso.builder.manifest import MANIFEST_NAME, Manifest, file_sha256
+from gira_iso.builder.catalog import CatalogError
+from gira_iso.builder.catalog import load_manifest as catalog_load_manifest
+from gira_iso.builder.manifest import Manifest, file_sha256
+from gira_iso.errors import EXIT_INVALID, GiraError
 from gira_iso.spec.models import Spec
 from gira_iso.verify.goss import to_yaml
 from gira_iso.verify.vm import VirtualMachine, VmError
@@ -22,8 +23,8 @@ GOSS_REMOTE = "/tmp/goss"
 GOSS_SPEC_REMOTE = "/tmp/goss.yaml"
 
 
-class VerificationError(RuntimeError):
-    pass
+class VerificationError(GiraError):
+    exit_code = EXIT_INVALID
 
 
 @dataclass(frozen=True)
@@ -45,14 +46,10 @@ class VerifyResult:
 
 def load_manifest(path: Path) -> tuple[Manifest, Path]:
     """Accept either a build directory or the manifest file itself."""
-    manifest_path = path / MANIFEST_NAME if path.is_dir() else path
-    if not manifest_path.is_file():
-        raise VerificationError(f"no manifest at {manifest_path}")
     try:
-        manifest = Manifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
-    except ValidationError as exc:
-        raise VerificationError(f"manifest at {manifest_path} is not valid: {exc}") from exc
-    return manifest, manifest_path
+        return catalog_load_manifest(path)
+    except CatalogError as exc:
+        raise VerificationError(str(exc)) from exc
 
 
 def _goss_binary() -> Path:

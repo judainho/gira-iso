@@ -636,7 +636,8 @@ def test_delete_build_refuses_a_directory_without_a_manifest(tmp_path: Path) -> 
 
 
 def test_describe_lists_the_hashes_a_reader_needs(tmp_path: Path) -> None:
-    from gira_iso.builder.export import describe, scan_builds
+    from gira_iso.builder.catalog import scan_builds
+    from gira_iso.builder.export import describe
 
     write_build(tmp_path)
     manifest, manifest_path = scan_builds(tmp_path)[0]

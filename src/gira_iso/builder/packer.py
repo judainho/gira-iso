@@ -15,10 +15,14 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from gira_iso.errors import EXIT_ENVIRONMENT, GiraError
+
 VERSION_RE = re.compile(r"Packer v(\d+\.\d+\.\d+)")
 
 
-class PackerError(RuntimeError):
+class PackerError(GiraError):
+    exit_code = EXIT_ENVIRONMENT
+
     def __init__(self, message: str, log_path: Path | None = None) -> None:
         super().__init__(message)
         self.log_path = log_path

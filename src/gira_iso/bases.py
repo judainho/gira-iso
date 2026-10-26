@@ -18,6 +18,8 @@ from pathlib import Path
 
 import yaml
 
+from gira_iso.errors import EXIT_INVALID, GiraError
+
 VERSION_RE = re.compile(r"^[0-9]{2}\.[0-9]{2}$")
 QCOW2_MAGIC = b"QFI\xfb"
 ISO_SIGNATURE_OFFSET = 0x8001
@@ -25,8 +27,8 @@ ISO_SIGNATURE = b"CD001"
 INDEX_NAME = "index.yaml"
 
 
-class UserBaseError(RuntimeError):
-    pass
+class UserBaseError(GiraError):
+    exit_code = EXIT_INVALID
 
 
 @dataclass(frozen=True)

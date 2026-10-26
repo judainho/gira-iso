@@ -5,35 +5,21 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from pydantic import ValidationError
-
 from gira_iso.builder.manifest import MANIFEST_NAME, Manifest, file_sha256
+from gira_iso.errors import EXIT_INVALID, EXIT_REJECTED, GiraError
 
 
-class ExportError(RuntimeError):
+class ExportError(GiraError):
     """`invalid` is bad input (missing file); otherwise the image was refused."""
 
     def __init__(self, message: str, *, invalid: bool = False) -> None:
         super().__init__(message)
         self.invalid = invalid
+        self.exit_code = EXIT_INVALID if invalid else EXIT_REJECTED
 
 
 class ExportExists(ExportError):
     """The destination already holds an image with this name."""
-
-
-def scan_builds(work_root: Path) -> list[tuple[Manifest, Path]]:
-    if not work_root.is_dir():
-        return []
-    found: list[tuple[Manifest, Path]] = []
-    for manifest_path in sorted(work_root.glob(f"*/{MANIFEST_NAME}")):
-        try:
-            manifest = Manifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
-        except (ValidationError, OSError):
-            continue
-        found.append((manifest, manifest_path))
-    found.sort(key=lambda item: item[0].created_at, reverse=True)
-    return found
 
 
 def export_image(

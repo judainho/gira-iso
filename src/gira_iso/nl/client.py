@@ -14,6 +14,7 @@ from typing import Literal, Protocol
 
 from pydantic import ValidationError
 
+from gira_iso.errors import EXIT_INVALID, GiraError
 from gira_iso.nl.prompt import build_system_prompt, user_message
 from gira_iso.nl.schema import Interpretation
 from gira_iso.policy.evaluate import Allowlist, load_allowlist
@@ -22,8 +23,8 @@ DEFAULT_BASE_URL = "https://api.llmapi.ai/v1"
 DEFAULT_MODEL = "deepseek-v4.1-flash"
 
 
-class InterpretError(RuntimeError):
-    pass
+class InterpretError(GiraError):
+    exit_code = EXIT_INVALID
 
 
 @dataclass(frozen=True)

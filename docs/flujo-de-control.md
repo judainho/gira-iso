@@ -1,7 +1,6 @@
 # Flujo de control de gira-iso
 
-Estado: **P0, descripción del estado actual** (commit `60e43e0`). Este documento responde, para el código
-tal como está hoy: *¿quién decide qué, en qué orden, dónde se puede parar todo y qué pasa cuando algo
+Estado: **P0 y P1 cerradas**. Las secciones 1 a 8 describen el código tal como estaba en P0 (commit `60e43e0`); donde P1 lo cambió, se indica. Este documento responde: *¿quién decide qué, en qué orden, dónde se puede parar todo y qué pasa cuando algo
 falla?* La sección 9 resume los problemas encontrados; el plan para resolverlos está en la sección 10.
 Cuando cada fase se complete, las secciones se actualizan al estado nuevo (ver sección 10).
 
@@ -240,12 +239,18 @@ recuerda entre ejecuciones es el último nombre y destino (`settings.py`).
 | `PushError` | `push/openstack.py` | `push`: exit 2 | (no aplica) |
 | `KeyboardInterrupt` | — | **traceback** | vuelve al menú; Packer se termina |
 
-Todas heredan de `RuntimeError` pero **no comparten una clase propia**, y el código de salida lo elige
-cada comando a mano (42 usos de `typer.Exit` en `cli.py`).
+Todas heredaban de `RuntimeError` **sin una raíz propia**, y el código de salida lo elegía cada comando a
+mano (42 usos de `typer.Exit` en `cli.py`).
+
+> **Desde P1:** todas heredan de `errors.GiraError`, que lleva su `exit_code`; cada comando del CLI
+> está envuelto por `_guarded`, que convierte cualquier `GiraError` en `error: …` más su código y
+> `Ctrl+C` en el código 130. Ya no hay trazas en `create`, `build` ni `verify`. Los códigos por clase:
+> `BuildRejected` 1 · `ExportError` 2 si la entrada es inválida y 1 si se rechazó · `BaseImageError`,
+> `PackerError`, `VmError`, `BuildError` 3 · el resto 2.
 
 Contrato de salida documentado en el README: `0` éxito · `1` el motor o la verificación rechazaron algo
-(o el modelo necesita más detalle) · `2` entrada inválida. **No existe un código para fallos de
-entorno** (falta QEMU, KVM sin permiso, sin espacio, sin red).
+(o el modelo necesita más detalle) · `2` entrada inválida. El código `3` (fallos de entorno) y el `130` (interrumpido) se añadieron en P1; el chequeo previo que
+anticipa esos fallos llega en P3 (C4).
 
 ---
 
@@ -290,20 +295,20 @@ son invisibles pero siguen ocupando disco y conservando la clave privada.
 
 Verificados leyendo el código; H7 requiere confirmarse con un build real.
 
-| # | Hallazgo | Gravedad |
-|---|---|---|
-| H1 | El flujo "crear" está duplicado en `cli.create` y `tui.create_image`; cada uno decide el orden | alta (mantenimiento) |
-| H2 | 10 clases de error sin raíz propia; el código de salida lo elige cada comando | media |
-| H3 | Dos reglas de nombre de imagen (63 vs 64 caracteres) | baja |
-| H4 | Progreso por tres callbacks sueltos en vez de eventos tipados | media |
-| H5 | `cli.py` (629) y `tui.py` (678) mezclan argumentos, presentación, flujo y comandos avanzados | media |
-| H6 | Lectura de manifests triplicada (`cli._load_manifest`, `verify.load_manifest`, `export.scan_builds`) | baja |
-| H7 | El usuario de build `packer` (sudo NOPASSWD + clave pública del build) se crea por cloud-init y la limpieza no lo elimina; la clave privada queda en el directorio de build. Si se confirma, **toda imagen producida acepta esa clave** | **alta (seguridad)** |
-| H8 | Un build fallido o cancelado deja el directorio con la clave privada; no hay forma de limpiar huérfanos | alta |
-| H9 | Sin candado: dos builds iguales en el mismo segundo chocan con `RuntimeError` | baja |
-| H10 | Sin preflight: QEMU, KVM o espacio faltantes se descubren dentro de Packer | alta (experiencia) |
-| H11 | Sin timeout global del build; una descarga interrumpida deja un `.part` | media |
-| H12 | `cli create` y el comando `build` solo capturan `BuildRejected`: un fallo de Packer, de checksum o de verificación termina en traceback | alta |
+| # | Hallazgo | Gravedad | Estado |
+|---|---|---|---|
+| H1 | El flujo "crear" está duplicado en `cli.create` y `tui.create_image`; cada uno decide el orden | alta (mantenimiento) | pendiente (P2) |
+| H2 | 10 clases de error sin raíz propia; el código de salida lo elige cada comando | media | **resuelto en P1**: `errors.GiraError` con `exit_code` |
+| H3 | Dos reglas de nombre de imagen (63 vs 64 caracteres) | baja | **resuelto en P1**: `naming.py` (64 caracteres) |
+| H4 | Progreso por tres callbacks sueltos en vez de eventos tipados | media | pendiente (P2) |
+| H5 | `cli.py` (629) y `tui.py` (678) mezclan argumentos, presentación, flujo y comandos avanzados | media | pendiente (P2) |
+| H6 | Lectura de manifests triplicada (`cli._load_manifest`, `verify.load_manifest`, `export.scan_builds`) | baja | **resuelto en P1**: `builder/catalog.py` |
+| H7 | El usuario de build `packer` (sudo NOPASSWD + clave pública del build) se crea por cloud-init y la limpieza no lo elimina; la clave privada queda en el directorio de build. Si se confirma, **toda imagen producida acepta esa clave** | **alta (seguridad)** | pendiente (P3, C1) |
+| H8 | Un build fallido o cancelado deja el directorio con la clave privada; no hay forma de limpiar huérfanos | alta | pendiente (P3, C2) |
+| H9 | Sin candado: dos builds iguales en el mismo segundo chocan con `RuntimeError` | baja | pendiente (P3, C3) |
+| H10 | Sin preflight: QEMU, KVM o espacio faltantes se descubren dentro de Packer | alta (experiencia) | pendiente (P3, C4) |
+| H11 | Sin timeout global del build; una descarga interrumpida deja un `.part` | media | pendiente (P3, C5 y C6) |
+| H12 | `cli create` y el comando `build` solo capturan `BuildRejected`: un fallo de Packer, de checksum o de verificación termina en traceback | alta | **resuelto en P1**: guarda `_guarded` en todos los comandos |
 
 ---
 

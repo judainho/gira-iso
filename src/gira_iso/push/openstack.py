@@ -15,12 +15,13 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from gira_iso.builder.manifest import Manifest, file_sha256
+from gira_iso.errors import EXIT_INVALID, GiraError
 
 VALID_FORMATS = ("qcow2", "raw")
 
 
-class PushError(RuntimeError):
-    pass
+class PushError(GiraError):
+    exit_code = EXIT_INVALID
 
 
 class ImageApi(Protocol):

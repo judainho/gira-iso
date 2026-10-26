@@ -7,7 +7,6 @@ commands use, so the menu cannot build anything the policy would reject.
 from __future__ import annotations
 
 import os
-import re
 import shutil
 from pathlib import Path
 
@@ -33,15 +32,16 @@ from gira_iso.bases import UserBaseError, builds_dir, list_user_bases, register_
 from gira_iso.builder import packer
 from gira_iso.builder.base import BaseImageError, cache_dir, ensure_base_image
 from gira_iso.builder.build import BuildRejected, build_image
+from gira_iso.builder.catalog import scan_builds
 from gira_iso.builder.export import (
     ExportError,
     ExportExists,
     delete_build,
     describe,
     export_image,
-    scan_builds,
 )
 from gira_iso.builder.manifest import Manifest
+from gira_iso.naming import is_valid_image_name
 from gira_iso.nl.client import (
     DEFAULT_BASE_URL,
     DEFAULT_MODEL,
@@ -59,7 +59,6 @@ from gira_iso.verify.verify import VerificationError, verify_build
 AUTHOR = "Manuel Judá Aliaga Aliaga"
 EMAIL = "maliagaa@pucp.edu.pe"
 ORG = "GIRA PUCP"
-NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 MAX_QUESTION_ROUNDS = 3
 
 MAX_KEY_ATTEMPTS = 3
@@ -214,7 +213,7 @@ def _export_from_menu(
             console=console,
         )
     ).expanduser()
-    safe_label = label if NAME_RE.match(label) else manifest_path.parent.name
+    safe_label = label if is_valid_image_name(label) else manifest_path.parent.name
     try:
         try:
             image, manifest_copy = export_image(manifest, manifest_path, destination, safe_label)
@@ -516,7 +515,7 @@ def create_image(console: Console, config: LlmConfig) -> None:
     name = Prompt.ask(
         "Nombre de la imagen", default=remembered.last_name or "mi-imagen", console=console
     )
-    if not NAME_RE.match(name):
+    if not is_valid_image_name(name):
         console.print("[red]✘ Nombre inválido: usa letras, dígitos, '.', '_' o '-'.[/]")
         return
     question = (
