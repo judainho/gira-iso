@@ -1,4 +1,4 @@
-# vmforge
+# gira-iso
 
 Turn a natural-language description into a reproducible, cloud-ready `qcow2` image.
 
@@ -16,9 +16,37 @@ natural language -> spec (spec.yaml) -> build template -> qcow2 image -> verific
 Status: initial design (v0). Development is incremental: every stage is built by hand and
 understood before it is automated.
 
+## Commands
+
+The first CLI surface is three verbs:
+
+```bash
+uv run gira-iso list                                  # images already created
+uv run gira-iso create examples/nginx-web.yaml --name web   # ~45s, writes image + manifest
+uv run gira-iso download web --to ~/Downloads         # copies image + manifest, checksum verified
+```
+
+`create` runs the schema and policy checks before downloading or building anything, so a
+rejected spec costs nothing. Add `--verify` to boot the image and run the generated goss
+assertions immediately after the build. `download` accepts an image name, a build id prefix,
+a build directory or a `manifest.json` path.
+
+The older commands (`check`, `plan`, `build`, `verify`, `policy`, `push`, `eval`) are still
+available but hidden from the main help: they are the advanced/automation surface.
+
 ## Documents
 
 - [`docs/plan-v1.md`](docs/plan-v1.md) — development plan, phases, acceptance gates and closed decisions.
+
+## Quick install
+
+```bash
+./install.sh                                              # Linux or WSL2
+powershell -ExecutionPolicy Bypass -File .\install.ps1    # Windows: sets up WSL2 and runs install.sh inside it
+```
+
+Then run `gira-iso` (on Windows: `wsl -d Ubuntu -- gira-iso`). It asks what image you want and,
+if no `GIRA_ISO_LLM_API_KEY` is set, for your API key (endpoint `https://api.llmapi.ai/v1`).
 
 ## From zero
 
@@ -34,13 +62,17 @@ sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils
 uv sync
 
 # 4. Spec -> image
-uv run vmforge check  examples/nginx-web.yaml   # schema + policy verdict
-uv run vmforge build  examples/nginx-web.yaml   # ~45s, writes image + manifest
-uv run vmforge verify builds/<timestamp>-<hash> # boots it and runs goss
+uv run gira-iso create examples/nginx-web.yaml --name web   # ~45s, writes image + manifest
+uv run gira-iso list
+uv run gira-iso download web --to ~/Downloads               # copies image + manifest
 
-# 5. Optionally describe it in natural language instead
-export VMFORGE_LLM_BASE_URL=... VMFORGE_LLM_API_KEY=... VMFORGE_LLM_MODEL=...
-uv run vmforge plan  spec.yaml   # what would be built, and what the policy says
+# 5. Optional: boot the image and prove it satisfies its manifest
+uv run gira-iso create examples/nginx-web.yaml --name web --verify
+
+# 6. The natural-language interpreter is not wired to the simple CLI yet;
+#    it lives in the evaluation harness (see "Interpreting natural language").
+export GIRA_ISO_LLM_BASE_URL=... GIRA_ISO_LLM_API_KEY=... GIRA_ISO_LLM_MODEL=...
+uv run gira-iso eval
 ```
 
 Every command exits `0` on success, `1` when the policy or the verification rejects
@@ -57,7 +89,7 @@ something, and `2` on invalid input.
 
 ```bash
 uv sync
-uv run vmforge version
+uv run gira-iso version
 uv run pytest
 uv run ruff check .
 ```
@@ -65,7 +97,7 @@ uv run ruff check .
 ## Building an image
 
 ```bash
-uv run vmforge build examples/nginx-web.yaml
+uv run gira-iso build examples/nginx-web.yaml
 ```
 
 That renders the spec into a Packer template and a cloud-init seed, runs Packer as a subprocess, and
@@ -78,7 +110,7 @@ Policy runs before anything is downloaded: a rejected spec costs no bandwidth an
 ## Verifying an image
 
 ```bash
-uv run vmforge verify builds/<timestamp>-<spec-hash>
+uv run gira-iso verify builds/<timestamp>-<spec-hash>
 ```
 
 Reads the manifest, checks the artifact checksum before booting anything, derives a `goss.yaml`
@@ -96,10 +128,10 @@ not declare ports, so no port assertion is invented.
 The interpreter is model-agnostic: it speaks to any OpenAI-compatible endpoint.
 
 ```bash
-export VMFORGE_LLM_BASE_URL=https://api.example.com/v1
-export VMFORGE_LLM_API_KEY=...
-export VMFORGE_LLM_MODEL=deepseek-v4.1-flash   # optional
-uv run vmforge eval
+export GIRA_ISO_LLM_BASE_URL=https://api.example.com/v1
+export GIRA_ISO_LLM_API_KEY=...
+export GIRA_ISO_LLM_MODEL=deepseek-v4.1-flash   # optional
+uv run gira-iso eval
 ```
 
 The model may answer with exactly three shapes: a spec, a list of clarifying questions, or a
@@ -109,21 +141,21 @@ text is delimited as data, and the policy layer runs independently of whatever t
 ### Measuring
 
 ```bash
-uv run vmforge eval --record eval/runs/2026-10-26.json   # call the model
-uv run vmforge eval --replay eval/runs/2026-10-26.json   # re-score, no network
+uv run gira-iso eval --record eval/runs/2026-10-26.json   # call the model
+uv run gira-iso eval --replay eval/runs/2026-10-26.json   # re-score, no network
 ```
 
-The dataset lives in `src/vmforge/eval/cases.yaml`: 25 cases across simple, composite, ambiguous,
+The dataset lives in `src/gira_iso/eval/cases.yaml`: 25 cases across simple, composite, ambiguous,
 out-of-scope, adversarial and bilingual categories. It was written before the client, and a test
 enforces that every expected spec is valid under both the schema and the policy.
 
 ## Uploading to OpenStack
 
-Out of the MVP, and optional: `pip install 'vmforge[openstack]'`.
+Out of the MVP, and optional: `pip install 'gira-iso[openstack]'`.
 
 ```bash
-uv run vmforge push builds/<timestamp>-<hash> --cloud mycloud
-uv run vmforge push builds/<timestamp>-<hash> --disk-format raw   # Ceph/RBD backends
+uv run gira-iso push builds/<timestamp>-<hash> --cloud mycloud
+uv run gira-iso push builds/<timestamp>-<hash> --disk-format raw   # Ceph/RBD backends
 ```
 
 Glance properties are derived from the manifest (`os_distro`, `os_version`,
@@ -136,8 +168,8 @@ refused.
 The allowlist is the security boundary and it is data, not code:
 
 ```bash
-export VMFORGE_ALLOWLIST=/etc/vmforge/allowlist.yaml
-uv run vmforge policy      # which file is active, its hash, and what it permits
+export GIRA_ISO_ALLOWLIST=/etc/gira-iso/allowlist.yaml
+uv run gira-iso policy      # which file is active, its hash, and what it permits
 ```
 
 The hash of the active policy is recorded in every build manifest, so an image can be
@@ -147,14 +179,14 @@ traced back to the rules that allowed it.
 
 Two builds of the same spec produce manifests that are identical field by field except for
 `created_at` and the artifact hash. **The `.qcow2` bytes differ**, because the filesystem records
-install timestamps and ext4 metadata. vmforge promises behavioural reproducibility — same spec,
+install timestamps and ext4 metadata. gira-iso promises behavioural reproducibility — same spec,
 same packages, same users, same configuration — not bit-identical images.
 
 ## Debugging a raw image
 
 `./scripts/boot-vanilla.sh --image path/to/image.qcow2` boots an image that has no
 manifest and reports whether cloud-init applied a seed. It exists for phase 0 work and
-for debugging; the supported path is `vmforge verify`.
+for debugging; the supported path is `gira-iso verify`.
 
 A spec that tries to disable `ssh`, install a package outside the allowlist or write
 `/etc/sudoers.d/*` is rejected with a reason, and nothing reaches a builder.

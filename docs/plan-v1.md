@@ -1,4 +1,4 @@
-# vmforge — Plan de desarrollo (v1)
+# gira-iso — Plan de desarrollo (v1)
 
 Estado: revisión del plan v0. Objetivo del documento: ordenar el trabajo en fases con
 hitos verificables, corrigiendo los huecos de seguridad y los acoplamientos que el v0
@@ -63,9 +63,9 @@ No se acepta el componente `main` completo de Ubuntu, y no hay vía de escape po
 Solo servicios declarados en el allowlist pueden habilitarse. Evita que el spec habilite unidades
 arbitrarias presentes en el sistema.
 
-**D6 — Ubicación del repositorio.** *(cerrada)*
-El proyecto se llama `vmforge`; el repositorio vive en `~/Desktop/gira-iso`. El nombre del
-directorio no coincide con el del proyecto y se acepta conscientemente.
+**D6 — Nombre del proyecto.** *(cerrada, revisada 2026-10-26)*
+El proyecto, el repositorio y el comando se llaman `gira-iso`. El paquete Python es `gira_iso`
+porque los guiones no son válidos en un nombre de módulo.
 
 **Defaults operativos:** x86_64 + BIOS sin UEFI en v0 · Ubuntu 24.04 amd64 cloud image ·
 Python 3.12 con `uv` + Pydantic v2 · CLI con Typer · goss fijado por release con sha256 ·
@@ -122,7 +122,7 @@ Sin LLM, sin build.
   fuera de lista, con base no reconocida, con servicio prohibido, con contenido gigante.
 - Serialización canónica del spec a YAML/JSON (orden estable) para poder hashearlo.
 
-**Hito verificable:** `vmforge check spec.yaml` valida esquema y políticas, imprime el veredicto con
+**Hito verificable:** `gira-iso check spec.yaml` valida esquema y políticas, imprime el veredicto con
 motivos, y la suite adversarial pasa entera sin build.
 
 **Retira el riesgo:** "el contrato no expresa lo que el motor necesita, o expresa más de lo que la
@@ -165,7 +165,7 @@ de verdad, no lo que la documentación dice que hay que limpiar.
 - Prueba de determinismo: dos builds consecutivos de la misma spec → mismo comportamiento observable
   y mismo hash de spec canónico (el hash del `.qcow2` no tiene por qué coincidir; se documenta por qué).
 
-**Hito verificable:** `vmforge build spec.yaml` produce imagen + manifest, y dos ejecuciones seguidas
+**Hito verificable:** `gira-iso build spec.yaml` produce imagen + manifest, y dos ejecuciones seguidas
 dan un manifest con el mismo hash de spec y artefactos funcionalmente equivalentes. *(cumplido)*
 
 **Retira el riesgo:** "la automatización no reproduce lo que hice a mano".
@@ -185,7 +185,7 @@ dan un manifest con el mismo hash de spec y artefactos funcionalmente equivalent
   incluso si el proceso falla).
 - Diagnóstico: si no arranca, volcar la consola serie y los logs de cloud-init antes de fallar.
 
-**Hito verificable:** `vmforge verify <build>` sale con 0 en una imagen correcta y con código distinto
+**Hito verificable:** `gira-iso verify <build>` sale con 0 en una imagen correcta y con código distinto
 de cero, con diagnóstico legible, en una imagen a la que le falta algo del manifest. *(cumplido)*
 
 **Retira el riesgo:** "la imagen pasa el build pero no sirve".
@@ -246,9 +246,9 @@ nube y queda en backlog.
 ## 4. Estructura del repositorio (revisada)
 
 ```
-gira-iso/                    # repository directory (project is `vmforge`, see D6)
-├── src/vmforge/
-│   ├── cli.py               # Typer: check, plan, build, verify, eval
+gira-iso/                    # project and repository are `gira-iso` (see D6)
+├── src/gira_iso/
+│   ├── cli.py               # Typer: list, create, download (+ advanced commands)
 │   ├── spec/                # Pydantic models + canonical form
 │   ├── policy/              # allowlist.yaml + evaluate() pura
 │   ├── builder/             # spec -> HCL/cloud-init, runner de Packer, manifest
@@ -303,7 +303,7 @@ El MVP está cerrado cuando, desde una descripción en español o inglés:
 
 **2026-10-26 — F0 cerrado.** `scripts/boot-vanilla.sh` arranca la cloud image 24.04 sin modificar
 sobre un overlay de 8G, con seed NoCloud. Comprobado en dos ejecuciones consecutivas: hostname
-`vmforge-f0`, `cloud-init status: done`, clave ed25519 del seed instalada, `PasswordAuthentication`
+`gira-iso-f0`, `cloud-init status: done`, clave ed25519 del seed instalada, `PasswordAuthentication`
 en `no`, `/dev/vda` expandido a 8.0G. Artefactos en `builds/vanilla-<ts>/`.
 Defecto propio corregido durante la fase: el directorio de trabajo por defecto resolvía relativo al
 cache de imágenes y no al repositorio, porque el script hace `cd` al cache antes de crearlo.
@@ -312,7 +312,7 @@ cache de imágenes y no al repositorio, porque el script hace `cd` al cache ante
 Consecuencia directa: pasa a `mandatory_packages` y el builder lo instala siempre.
 
 **2026-10-26 — F1 cerrado.** `spec/models.py` (reglas de forma), `spec/canonical.py` (hash estable),
-`policy/allowlist.yaml` y `policy/evaluate.py` (función pura). `vmforge check` y `vmforge plan`
+`policy/allowlist.yaml` y `policy/evaluate.py` (función pura). `gira-iso check` y `gira-iso plan`
 implementados con códigos de salida 0/1/2. 63 tests en verde, entre ellos 6 casos adversariales de
 clave SSH, 5 de rutas de archivo y la invariante de que `mandatory_packages ⊆ packages`.
 Decisión tomada al escribir el esquema: en v0 una clave SSH debe ser `ssh-ed25519` desnuda, sin
@@ -333,7 +333,7 @@ defecto incluso sobre un `disk_image` y produjo un artefacto de 40G; el plugin 1
 da error, deja al guest en initramfs con `LABEL=cloudimg-rootfs does not exist`.
 
 
-**2026-10-26 — F3 cerrado.** `vmforge build` renderiza el spec a plantilla Packer y a seed de
+**2026-10-26 — F3 cerrado.** `gira-iso build` renderiza el spec a plantilla Packer y a seed de
 cloud-init, ejecuta Packer como subproceso con log en `builds/<ts>-<hash>/logs/` y escribe
 `manifest.json` con hash del spec, base fijada, versión de Packer y del plugin, hash de la
 plantilla y hash del artefacto. Build en 42 s, 10G virtual.
@@ -356,7 +356,7 @@ dos caminos divergentes. `scripts/boot-vanilla.sh` se queda como verificador man
 lo reemplace con goss.
 
 
-**2026-10-26 — F4 cerrado.** `vmforge verify <build-dir|manifest.json>` lee el manifest (no el spec
+**2026-10-26 — F4 cerrado.** `gira-iso verify <build-dir|manifest.json>` lee el manifest (no el spec
 del disco), comprueba el checksum del artefacto **antes de arrancar**, genera `goss.yaml` desde el
 spec, arranca un overlay con seed nuevo, espera a cloud-init y ejecuta goss dentro del guest.
 Cleanup garantizado por context manager: no quedan procesos ni overlays.
@@ -381,7 +381,7 @@ es una promesa del spec. Verificar lo que no se prometió es otra forma de menti
 **2026-10-26 — F5: código cerrado, medición pendiente.** Entregado: dataset dorado de 25 casos en
 seis categorías (13 es / 12 en), esquema de salida cerrado (`spec` / `questions` / `reject`),
 cliente compatible con OpenAI con reintento único que devuelve el error de validación al modelo,
-defensa de inyección por delimitadores, scoring puro, agregación de métricas y `vmforge eval` con
+defensa de inyección por delimitadores, scoring puro, agregación de métricas y `gira-iso eval` con
 `--record` y `--replay`.
 
 El orden importó: el dataset se escribió **antes** del cliente. Un dataset autorado después de ver
@@ -395,12 +395,12 @@ modelo y no se guarda como resultado.
 
 **No se ejecutó contra un modelo real.** En esta máquina existe `LLMAPI_API_KEY` pero no hay
 `base_url` ni modelo declarados, y adivinar un endpoint para gastar una credencial ajena no es una
-decisión que me corresponda. Falta que el usuario aporte `VMFORGE_LLM_BASE_URL` y
-`VMFORGE_LLM_MODEL`. Criterio de éxito de la fase (comparar dos modelos) sigue abierto.
+decisión que me corresponda. Falta que el usuario aporte `GIRA_ISO_LLM_BASE_URL` y
+`GIRA_ISO_LLM_MODEL`. Criterio de éxito de la fase (comparar dos modelos) sigue abierto.
 
 
-**2026-10-26 — F6 cerrado.** Política configurable por entorno (`VMFORGE_ALLOWLIST`) con comando
-`vmforge policy` que muestra el archivo activo y su hash; ese hash se registra ahora en el manifest,
+**2026-10-26 — F6 cerrado.** Política configurable por entorno (`GIRA_ISO_ALLOWLIST`) con comando
+`gira-iso policy` que muestra el archivo activo y su hash; ese hash se registra ahora en el manifest,
 de modo que una imagen se puede rastrear hasta las reglas que la permitieron. `toolchain.lock` fija
 packer y goss por versión y sha256, y `scripts/check-toolchain.sh` verifica una máquina contra el
 lock; QEMU se comprueba por versión mínima porque sus parches no cambian el artefacto. Añadidos
@@ -409,14 +409,22 @@ toolchain fijado en una máquina limpia para probar que el lock sirve) y `eval.y
 secretos, guarda la grabación como artefacto). README reescrito con un camino "From zero" y una
 sección de depuración para imágenes sin manifest.
 
-Verificado de punta a punta tras los cambios: `vmforge build examples/nginx-web.yaml` (45 s) produce
-manifest con `policy.sha256`, y `vmforge verify` sobre ese build da 20 aserciones en verde.
+Verificado de punta a punta tras los cambios: `gira-iso build examples/nginx-web.yaml` (45 s) produce
+manifest con `policy.sha256`, y `gira-iso verify` sobre ese build da 20 aserciones en verde.
 
 Punto de F6 no hecho: verificación por `qemu-guest-agent` como alternativa a SSH. El plan lo marca
 como endurecimiento opcional y queda en backlog con el resto.
 
-**2026-10-26 — F7 implementada, no probada.** `src/vmforge/push/openstack.py` sube a Glance con
+**2026-10-26 — F7 implementada, no probada.** `src/gira_iso/push/openstack.py` sube a Glance con
 propiedades derivadas del manifest, verifica el checksum del artefacto antes de enviar un byte,
 acepta `qcow2` y `raw`, y rechaza un formato desconocido. `openstacksdk` es dependencia opcional y
 la conexión es inyectable, que es como está testeada: siete tests con una conexión falsa. La prueba
 de arranque real en OpenStack no se ejecutó porque no hay nube disponible, y no se va a simular.
+
+**2026-10-26 — Renombrado a `gira-iso`.** D6 revisada: el nombre oficial es `gira-iso`. Se
+renombraron el paquete (`src/gira_iso`), el comando (`gira-iso`), las variables de entorno
+(`GIRA_ISO_*`), el caché (`~/.cache/gira-iso`), el artefacto
+(`gira-iso-ubuntu-24.04.qcow2`), CI, scripts y documentación. Motivo: `vmforge` se había
+registrado en D6 como decisión del plan, pero no era el nombre del producto. No había builds
+reales todavía, así que no hubo manifests ni imágenes que migrar; solo se movió el caché de la
+imagen base.

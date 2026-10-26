@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from vmforge.policy.evaluate import Allowlist, load_allowlist
-from vmforge.spec.models import Spec
+from gira_iso.policy.evaluate import Allowlist, load_allowlist
+from gira_iso.spec.models import Spec
 
 VALID_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f"
 
@@ -47,3 +47,12 @@ def valid_spec() -> Spec:
 @pytest.fixture(scope="session")
 def allowlist() -> Allowlist:
     return load_allowlist()
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path_factory, monkeypatch):
+    """Registered bases live under GIRA_ISO_HOME; tests must never see the real ones."""
+    monkeypatch.setenv("GIRA_ISO_HOME", str(tmp_path_factory.mktemp("gira-home")))

@@ -8,8 +8,8 @@ import pytest
 import yaml
 from conftest import build_spec
 
-from vmforge.builder.build import BuildRejected, build_image
-from vmforge.builder.render import (
+from gira_iso.builder.build import BuildRejected, build_image
+from gira_iso.builder.render import (
     PLUGIN_VERSION,
     cloud_init,
     disk_size_mb,
@@ -17,8 +17,8 @@ from vmforge.builder.render import (
     effective_services,
     render,
 )
-from vmforge.policy.evaluate import load_allowlist
-from vmforge.spec.models import Spec
+from gira_iso.policy.evaluate import load_allowlist
+from gira_iso.spec.models import Spec
 
 MANDATORY = load_allowlist().mandatory_packages
 KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f"

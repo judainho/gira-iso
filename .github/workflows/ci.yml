@@ -21,9 +21,9 @@ jobs:
       - name: Tests
         run: uv run pytest -q
       - name: The shipped example must stay valid
-        run: uv run vmforge check examples/nginx-web.yaml
+        run: uv run gira-iso check examples/nginx-web.yaml
       - name: The allowlist must ship a pinned base
-        run: uv run vmforge policy
+        run: uv run gira-iso policy
 
   toolchain:
     # The lock is only worth having if a fresh machine can satisfy it.

@@ -6,7 +6,7 @@ import pytest
 from conftest import VALID_KEY, build_spec, ssh_blob
 from pydantic import ValidationError
 
-from vmforge.spec.models import MAX_FILE_BYTES, Spec
+from gira_iso.spec.models import MAX_FILE_BYTES, Spec
 
 
 def test_minimal_spec_applies_defaults() -> None:
@@ -29,8 +29,8 @@ def test_unknown_service_subfield_is_rejected() -> None:
         Spec.model_validate({"services": {"enable": ["nginx"], "restart": ["nginx"]}})
 
 
-@pytest.mark.parametrize("version", ["22.04", "26.04", "latest"])
-def test_unknown_base_version_is_a_schema_error(version: str) -> None:
+@pytest.mark.parametrize("version", ["latest", "24", "24.4", "24.04.1"])
+def test_malformed_base_version_is_a_schema_error(version: str) -> None:
     with pytest.raises(ValidationError):
         Spec.model_validate({"base": {"os": "ubuntu", "version": version}})
 
@@ -133,3 +133,8 @@ def test_user_name_is_constrained(name: str) -> None:
 def test_package_name_is_constrained(package: str) -> None:
     with pytest.raises(ValidationError):
         build_spec(packages=[package])
+
+
+def test_unpinned_base_version_passes_the_schema_and_is_left_to_the_policy() -> None:
+    spec = Spec.model_validate({"base": {"os": "ubuntu", "version": "22.04"}})
+    assert spec.base.version == "22.04"

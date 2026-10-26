@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from vmforge.nl.client import Completion, InterpretError, interpret
-from vmforge.nl.prompt import SYSTEM_PROMPT, user_message
-from vmforge.nl.schema import Interpretation
+from gira_iso.nl.client import Completion, InterpretError, interpret
+from gira_iso.nl.prompt import SYSTEM_PROMPT, user_message
+from gira_iso.nl.schema import Interpretation
 
 VALID_SPEC = '{"kind": "spec", "spec": {"packages": ["nginx"]}}'
 

@@ -26,13 +26,13 @@ jobs:
       - run: uv sync --frozen
       - name: Run the golden dataset
         env:
-          VMFORGE_LLM_BASE_URL: ${{ secrets.VMFORGE_LLM_BASE_URL }}
-          VMFORGE_LLM_API_KEY: ${{ secrets.VMFORGE_LLM_API_KEY }}
-          VMFORGE_LLM_MODEL: ${{ inputs.model || vars.VMFORGE_LLM_MODEL }}
+          GIRA_ISO_LLM_BASE_URL: ${{ secrets.GIRA_ISO_LLM_BASE_URL }}
+          GIRA_ISO_LLM_API_KEY: ${{ secrets.GIRA_ISO_LLM_API_KEY }}
+          GIRA_ISO_LLM_MODEL: ${{ inputs.model || vars.GIRA_ISO_LLM_MODEL }}
           CATEGORY: ${{ inputs.category }}
         run: |
           mkdir -p eval/runs
-          uv run vmforge eval \
+          uv run gira-iso eval \
             ${CATEGORY:+--category "$CATEGORY"} \
             --record "eval/runs/${GITHUB_RUN_ID}.json"
       - uses: actions/upload-artifact@v4

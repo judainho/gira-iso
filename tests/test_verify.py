@@ -8,9 +8,9 @@ from pathlib import Path
 import yaml
 from conftest import VALID_KEY, build_spec
 
-from vmforge.builder.manifest import MANIFEST_NAME
-from vmforge.verify.goss import build_goss, file_sha256, to_yaml
-from vmforge.verify.verify import VerificationError, verify_build
+from gira_iso.builder.manifest import MANIFEST_NAME
+from gira_iso.verify.goss import build_goss, file_sha256, to_yaml
+from gira_iso.verify.verify import VerificationError, verify_build
 
 
 def test_packages_become_installed_assertions() -> None:
@@ -76,7 +76,7 @@ def test_goss_yaml_round_trips() -> None:
 def _write_build(tmp_path: Path, manifest_dump: dict) -> Path:
     build = tmp_path / "build"
     (build / "image").mkdir(parents=True)
-    (build / "image" / "vmforge-ubuntu-24.04.qcow2").write_bytes(b"not really an image")
+    (build / "image" / "gira-iso-ubuntu-24.04.qcow2").write_bytes(b"not really an image")
     (build / MANIFEST_NAME).write_text(json.dumps(manifest_dump), encoding="utf-8")
     return build
 
@@ -103,7 +103,7 @@ def test_checksum_mismatch_stops_before_booting(tmp_path: Path) -> None:
             "packages": ["nginx"],
             "services": [],
             "artifact": {
-                "file": "vmforge-ubuntu-24.04.qcow2",
+                "file": "gira-iso-ubuntu-24.04.qcow2",
                 "sha256": "3" * 64,
                 "size_bytes": 4,
                 "virtual_size_bytes": 8,
@@ -127,7 +127,7 @@ def test_missing_manifest_is_a_clear_error(tmp_path: Path) -> None:
 
 def test_goss_summary_parser_uses_the_real_key_names() -> None:
     """goss reports `test-count`, not `tested-count`; a typo here reports 0 tests."""
-    from vmforge.verify.verify import _goss_summary
+    from gira_iso.verify.verify import _goss_summary
 
     report = json.dumps(
         {
@@ -149,7 +149,7 @@ def test_goss_summary_parser_uses_the_real_key_names() -> None:
 
 
 def test_goss_summary_parser_reports_success() -> None:
-    from vmforge.verify.verify import _goss_summary
+    from gira_iso.verify.verify import _goss_summary
 
     passed, detail = _goss_summary(
         json.dumps({"results": [], "summary": {"failed-count": 0, "test-count": 7}})

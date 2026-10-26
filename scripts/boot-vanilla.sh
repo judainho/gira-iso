@@ -17,14 +17,14 @@ ORIG_PWD="$PWD"
 
 BASE_URL="https://cloud-images.ubuntu.com/releases/noble/release"
 BASE_NAME="ubuntu-24.04-server-cloudimg-amd64.img"
-CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/vmforge/images"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/gira-iso/images"
 
 DISK="8G"
 MEMORY="2048"
 CPUS="2"
 SSH_PORT="2222"
-SSH_USER="vmforge"
-HOSTNAME="vmforge-f0"
+SSH_USER="gira-iso"
+HOSTNAME="gira-iso-f0"
 KEEP_RUNNING="no"
 WORK_DIR=""
 IMAGE=""
@@ -146,7 +146,7 @@ SSH_KEY="$WORK_DIR/id_ed25519"
 
 if [ ! -f "$SSH_KEY" ]; then
   log "generating throwaway ssh key"
-  ssh-keygen -t ed25519 -N '' -C 'vmforge-f0' -f "$SSH_KEY" >/dev/null
+  ssh-keygen -t ed25519 -N '' -C 'gira-iso-f0' -f "$SSH_KEY" >/dev/null
 fi
 PUBKEY="$(cat "${SSH_KEY}.pub")"
 

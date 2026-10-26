@@ -7,7 +7,7 @@ import dataclasses
 import pytest
 from conftest import VALID_KEY, build_spec
 
-from vmforge.policy.evaluate import Allowlist, evaluate, load_allowlist
+from gira_iso.policy.evaluate import Allowlist, evaluate, load_allowlist
 
 
 def codes(spec, allowlist: Allowlist) -> tuple[str, ...]:
@@ -129,7 +129,7 @@ def test_example_spec_is_accepted() -> None:
 
     import yaml
 
-    from vmforge.spec.models import Spec
+    from gira_iso.spec.models import Spec
 
     path = Path(__file__).resolve().parents[1] / "examples" / "nginx-web.yaml"
     spec = Spec.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
@@ -141,10 +141,10 @@ def test_valid_key_placeholder_in_example_parses() -> None:
 
 
 def test_allowlist_can_be_overridden_by_environment(tmp_path, monkeypatch) -> None:
-    """An organisation points VMFORGE_ALLOWLIST at its own file; no code changes."""
+    """An organisation points GIRA_ISO_ALLOWLIST at its own file; no code changes."""
     import yaml
 
-    from vmforge.policy.evaluate import ENV_VAR, allowlist_digest
+    from gira_iso.policy.evaluate import ENV_VAR, allowlist_digest
 
     custom = tmp_path / "org-allowlist.yaml"
     data = {
@@ -166,3 +166,10 @@ def test_allowlist_can_be_overridden_by_environment(tmp_path, monkeypatch) -> No
 
     spec = build_spec(packages=["curl"])
     assert evaluate(spec, active).codes() == ("package.not_allowed",)
+
+
+def test_a_base_version_nobody_pinned_is_rejected_by_the_policy(valid_spec) -> None:
+    other = valid_spec.model_copy(
+        update={"base": valid_spec.base.model_copy(update={"version": "22.04"})}
+    )
+    assert evaluate(other, load_allowlist()).codes() == ("base.unknown",)

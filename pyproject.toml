@@ -1,5 +1,5 @@
 [project]
-name = "vmforge"
+name = "gira-iso"
 version = "0.0.1"
 description = "Turn a natural-language description into a validated, reproducible, cloud-ready qcow2 image"
 readme = "README.md"
@@ -28,10 +28,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/vmforge"]
+packages = ["src/gira_iso"]
 
 [project.scripts]
-vmforge = "vmforge.cli:app"
+gira-iso = "gira_iso.cli:app"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -46,4 +46,4 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.per-file-ignores]
 # Typer declares arguments and options as default values by design.
-"src/vmforge/cli.py" = ["B008"]
+"src/gira_iso/cli.py" = ["B008"]

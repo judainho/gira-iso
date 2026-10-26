@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from vmforge.builder.manifest import Manifest
-from vmforge.push.openstack import (
+from gira_iso.builder.manifest import Manifest
+from gira_iso.push.openstack import (
     PushError,
     image_name,
     image_properties,
@@ -33,7 +33,7 @@ class FakeConnection:
 
 def _build(tmp_path: Path, *, tamper: bool = False) -> Path:
     payload = b"qcow2 bytes"
-    image = tmp_path / "image" / "vmforge-ubuntu-24.04.qcow2"
+    image = tmp_path / "image" / "gira-iso-ubuntu-24.04.qcow2"
     image.parent.mkdir(parents=True)
     image.write_bytes(payload)
     digest = hashlib.sha256(payload if not tamper else b"other").hexdigest()
@@ -75,8 +75,8 @@ def test_metadata_comes_from_the_manifest(tmp_path: Path) -> None:
     assert properties["os_version"] == "24.04"
     assert properties["hw_qemu_guest_agent"] == "yes"
     assert properties["hw_disk_bus"] == "virtio"
-    assert properties["vmforge_spec_sha256"] == "a" * 64
-    assert properties["vmforge_policy_sha256"] == "c" * 64
+    assert properties["gira_iso_spec_sha256"] == "a" * 64
+    assert properties["gira_iso_policy_sha256"] == "c" * 64
 
 
 def test_default_name_is_derived_from_the_spec_hash(tmp_path: Path) -> None:
@@ -117,6 +117,6 @@ def test_raw_is_accepted_for_ceph_backends(tmp_path: Path) -> None:
 
 def test_missing_image_file_is_an_error(tmp_path: Path) -> None:
     manifest_path = _build(tmp_path)
-    (tmp_path / "image" / "vmforge-ubuntu-24.04.qcow2").unlink()
+    (tmp_path / "image" / "gira-iso-ubuntu-24.04.qcow2").unlink()
     with pytest.raises(PushError, match="does not exist"):
         upload_image(manifest_path, connection=FakeConnection())

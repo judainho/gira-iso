@@ -13,27 +13,27 @@ F7 implementada, **sin probar contra una nube**.
 
 Sin esto el criterio de éxito de la fase no está cumplido: no hay métricas ni comparación.
 
-- Falta `VMFORGE_LLM_BASE_URL` y `VMFORGE_LLM_MODEL`. En la máquina de desarrollo solo existe
+- Falta `GIRA_ISO_LLM_BASE_URL` y `GIRA_ISO_LLM_MODEL`. En la máquina de desarrollo solo existe
   `LLMAPI_API_KEY`, sin endpoint declarado. No se adivinó un endpoint para gastar una credencial.
 - Falta elegir el **modelo de línea base** para la comparación.
 
 Con las dos cosas:
 
 ```bash
-VMFORGE_LLM_BASE_URL=... VMFORGE_LLM_API_KEY=... VMFORGE_LLM_MODEL=... \
-  uv run vmforge eval --record eval/runs/baseline.json
+GIRA_ISO_LLM_BASE_URL=... GIRA_ISO_LLM_API_KEY=... GIRA_ISO_LLM_MODEL=... \
+  uv run gira-iso eval --record eval/runs/baseline.json
 ```
 
 ### 1.2 Revisar la política como artefacto de seguridad
 
-`src/vmforge/policy/allowlist.yaml` decide qué paquetes, servicios y rutas se permiten. Es una
-decisión de la organización, no técnica. Ya lo usan el builder, el dataset y `vmforge push`.
+`src/gira_iso/policy/allowlist.yaml` decide qué paquetes, servicios y rutas se permiten. Es una
+decisión de la organización, no técnica. Ya lo usan el builder, el dataset y `gira-iso push`.
 Canjear la lista curada por la política real es lo primero que debería pasar antes de usar esto
 en serio.
 
 ### 1.3 Probar la subida a OpenStack
 
-`src/vmforge/push/openstack.py` está implementada y testeada contra una conexión falsa: propiedades,
+`src/gira_iso/push/openstack.py` está implementada y testeada contra una conexión falsa: propiedades,
 verificación de checksum y formatos. Nunca se ejecutó contra una nube real.
 
 - Falta un `clouds.yaml` y un proyecto OpenStack.
@@ -80,10 +80,9 @@ necesita comparar imágenes por hash.
 
 ## 5. Menor
 
-- `scripts/boot-vanilla.sh` duplica parte de `verify/vm.py`. Si vuelve a divergir, borrarlo y dar un
-  modo `--no-goss` a `vmforge verify`.
+- `scripts/boot-vanilla.sh` duplica parte de `verify/vm.py`. Si vuelve a divergir, borrarlo y darle
+  un modo `--no-goss` a `gira-iso verify`.
 - goss se sube al guest en cada verificación (~20 MB por SSH). Funciona.
-- El nombre del directorio (`gira-iso`) no coincide con el del proyecto (`vmforge`). Aceptado en D6.
 
 ---
 

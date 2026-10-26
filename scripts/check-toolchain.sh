@@ -45,14 +45,19 @@ check_binary goss \
   "$(awk '/^goss:/{f=1;next} /^[a-z]/{f=0} f' "$LOCK" | grep -E '^  version:' | sed -E 's/.*"([^"]*)".*/\1/')" \
   "$(awk '/^goss:/{f=1;next} /^[a-z]/{f=0} f' "$LOCK" | grep -E '^  sha256:' | sed -E 's/.*"([^"]*)".*/\1/')"
 
-qemu_version="$(qemu-system-x86_64 --version | head -1 | sed -E 's/QEMU emulator version ([^ ]+).*/\1/')"
-expected_qemu="$(awk '/^qemu:/{f=1;next} /^[a-z]/{f=0} f' "$LOCK" | grep -E '^  minimum_version:' | sed -E 's/.*"([^"]*)".*/\1/')"
-expected_major="${expected_qemu%%.*}"
-if [ "${qemu_version%%.*}" -ge "$expected_major" ]; then
-  printf '  OK       %-8s %s\n' qemu "$qemu_version"
-else
-  printf '  MISMATCH %-8s expected %s.x, got %s\n' qemu "$expected_major" "$qemu_version"
+if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
+  printf '  MISSING  %-8s not in PATH (sudo apt-get install -y qemu-system-x86)\n' qemu
   failures=$((failures + 1))
+else
+  qemu_version="$(qemu-system-x86_64 --version | head -1 | sed -E 's/QEMU emulator version ([^ ]+).*/\1/')"
+  expected_qemu="$(awk '/^qemu:/{f=1;next} /^[a-z]/{f=0} f' "$LOCK" | grep -E '^  minimum_version:' | sed -E 's/.*"([^"]*)".*/\1/')"
+  expected_major="${expected_qemu%%.*}"
+  if [ "${qemu_version%%.*}" -ge "$expected_major" ]; then
+    printf '  OK       %-8s %s\n' qemu "$qemu_version"
+  else
+    printf '  MISMATCH %-8s expected %s.x, got %s\n' qemu "$expected_major" "$qemu_version"
+    failures=$((failures + 1))
+  fi
 fi
 
 for package in cloud-image-utils qemu-utils; do

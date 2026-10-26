@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from conftest import build_spec
 
-from vmforge.spec.canonical import canonical_json, spec_hash
-from vmforge.spec.models import Spec
+from gira_iso.spec.canonical import canonical_json, spec_hash
+from gira_iso.spec.models import Spec
 
 
 def test_hash_is_stable_for_the_same_spec() -> None:

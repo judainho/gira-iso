@@ -8,12 +8,12 @@ from pathlib import Path
 import pytest
 from conftest import VALID_KEY
 
-from vmforge.eval.dataset import Case, Expectation, load_cases
-from vmforge.eval.runner import aggregate, replay, run_eval
-from vmforge.eval.scoring import CaseResult, compare, score_case
-from vmforge.nl.client import Completion
-from vmforge.policy.evaluate import load_allowlist
-from vmforge.spec.models import Spec
+from gira_iso.eval.dataset import Case, Expectation, load_cases
+from gira_iso.eval.runner import aggregate, replay, run_eval
+from gira_iso.eval.scoring import CaseResult, compare, score_case
+from gira_iso.nl.client import Completion
+from gira_iso.policy.evaluate import load_allowlist
+from gira_iso.spec.models import Spec
 
 
 def test_dataset_loads_with_unique_ids_and_both_languages() -> None:
@@ -43,7 +43,7 @@ def test_every_expected_spec_is_valid_and_policy_clean() -> None:
         if case.expect.kind != "spec":
             continue
         spec = Spec.model_validate(case.expect.spec)
-        from vmforge.policy.evaluate import evaluate
+        from gira_iso.policy.evaluate import evaluate
 
         verdict = evaluate(spec, allowlist)
         assert verdict.passed, f"{case.id}: {verdict.codes()}"
