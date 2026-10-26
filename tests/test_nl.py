@@ -172,3 +172,20 @@ def test_no_context_leaves_the_message_unchanged() -> None:
 
 def test_the_system_prompt_explains_the_context_block() -> None:
     assert "<context>" in SYSTEM_PROMPT
+
+
+def test_the_default_model_is_one_the_provider_lists() -> None:
+    """The provider's model list is public; a stale default made the first real run fail."""
+    from gira_iso.nl.client import DEFAULT_MODEL
+
+    # Ids seen in https://api.llmapi.ai/v1/models on 2026-10-26. Update this set, and the
+    # default, together; the old default "deepseek-v4.1-flash" was not in the list.
+    listed = {
+        "deepseek-v4-flash",
+        "deepseek-v4-flash-0731",
+        "deepseek-v4-pro",
+        "deepseek-v4.1-flash-1017",
+        "deepseek/deepseek-v4.1-flash",
+    }
+    assert DEFAULT_MODEL in listed
+    assert DEFAULT_MODEL != "deepseek-v4.1-flash"

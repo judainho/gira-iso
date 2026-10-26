@@ -20,7 +20,9 @@ from gira_iso.nl.schema import Interpretation
 from gira_iso.policy.evaluate import Allowlist, load_allowlist
 
 DEFAULT_BASE_URL = "https://api.llmapi.ai/v1"
-DEFAULT_MODEL = "deepseek-v4.1-flash"
+# Must be an id the provider actually lists (https://api.llmapi.ai/v1/models, public). The previous
+# default, "deepseek-v4.1-flash", is not one of them; the dated snapshot below is the same model.
+DEFAULT_MODEL = "deepseek-v4.1-flash-1017"
 
 
 class InterpretError(GiraError):

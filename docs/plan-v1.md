@@ -529,3 +529,12 @@ Lo que la prueba real reveló: `verify/id_ed25519`, la clave de la VM de verific
 (modo 600). Se corrigió: `VirtualMachine.stop()` la borra siempre, también si el apagado falla. 4 tests
 nuevos; 356 en total.
 
+**2026-10-26 — El modelo por defecto no existía en el proveedor.** Antes de la primera prueba real del
+lenguaje natural se consultó el listado público `https://api.llmapi.ai/v1/models` (391 modelos, no
+requiere clave): `deepseek-v4.1-flash`, el valor por defecto desde el principio, **no está**. Existen
+`deepseek-v4.1-flash-1017` (instantánea fechada del mismo modelo), `deepseek-v4-flash` y
+`deepseek/deepseek-v4.1-flash`. El nuevo valor por defecto es `deepseek-v4.1-flash-1017`. Sin esto, el
+primer paso de la primera prueba real habría fallado. Sigue sin verificarse que ese modelo acepte
+`response_format: json_object` y siga el formato con `understood`/`unsupported`: eso solo se sabe con una
+clave. `GIRA_ISO_LLM_MODEL` o `--model` lo cambian.
+

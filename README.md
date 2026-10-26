@@ -176,7 +176,7 @@ The interpreter is model-agnostic: it speaks to any OpenAI-compatible endpoint.
 ```bash
 export GIRA_ISO_LLM_BASE_URL=https://api.example.com/v1
 export GIRA_ISO_LLM_API_KEY=...
-export GIRA_ISO_LLM_MODEL=deepseek-v4.1-flash   # optional
+export GIRA_ISO_LLM_MODEL=deepseek-v4-flash   # optional; any id from https://api.llmapi.ai/v1/models
 uv run gira-iso eval
 ```
 
