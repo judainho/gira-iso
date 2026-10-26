@@ -380,7 +380,7 @@ Verificados leyendo el código; H7 requiere confirmarse con un build real.
 | H4 | Progreso por tres callbacks sueltos en vez de eventos tipados | media | **resuelto en P2**: `workflow/events.py` (los callbacks de `build_image` se conservan por dentro) |
 | H5 | `cli.py` (629) y `tui.py` (678) mezclan argumentos, presentación, flujo y comandos avanzados | media | **resuelto en P2**: paquetes `cli/` y `tui/` (ningún módulo pasa de 250 líneas) |
 | H6 | Lectura de manifests triplicada (`cli._load_manifest`, `verify.load_manifest`, `export.scan_builds`) | baja | **resuelto en P1**: `builder/catalog.py` |
-| H7 | El usuario de build `packer` (sudo NOPASSWD + clave pública del build) se crea por cloud-init y la limpieza no lo elimina; la clave privada queda en el directorio de build. Si se confirma, **toda imagen producida acepta esa clave** | **alta (seguridad)** | pendiente (P3, C1) |
+| H7 | El usuario de build `packer` (sudo NOPASSWD + clave pública del build) se crea por cloud-init y la limpieza no lo elimina; la clave privada queda en el directorio de build. Si se confirma, **toda imagen producida acepta esa clave** | **alta (seguridad)** | **control C1 implementado en P3**: `finalize.sh` elimina el usuario, verifica y recién apaga; goss lo comprueba. *Pendiente confirmar con un build real* |
 | H8 | Un build fallido o cancelado deja el directorio con la clave privada; no hay forma de limpiar huérfanos | alta | pendiente (P3, C2) |
 | H9 | Sin candado: dos builds iguales en el mismo segundo chocan con `RuntimeError` | baja | pendiente (P3, C3) |
 | H10 | Sin preflight: QEMU, KVM o espacio faltantes se descubren dentro de Packer | alta (experiencia) | pendiente (P3, C4) |

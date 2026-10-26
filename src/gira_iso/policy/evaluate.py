@@ -70,6 +70,11 @@ class Allowlist:
 
 ENV_VAR = "GIRA_ISO_ALLOWLIST"
 
+# Accounts the tool itself creates. They must match builder.render.BUILD_USER and
+# verify.vm.VERIFY_USER (a test checks it). A spec user with one of these names would be
+# deleted by the finalize script or clash with the verifier.
+RESERVED_USERS = frozenset({"root", "packer", "gira-iso"})
+
 
 def read_allowlist_text(path: str | None = None) -> tuple[str, str]:
     """Return (label, text) of the active allowlist.
@@ -211,6 +216,16 @@ def evaluate(spec: Spec, allowlist: Allowlist | None = None) -> Verdict:
                     code="service.not_allowed",
                     message=f"{service} is not in the service allowlist",
                     location=f"services.disable[{index}]",
+                )
+            )
+
+    for index, user in enumerate(spec.users):
+        if user.name in RESERVED_USERS:
+            violations.append(
+                Violation(
+                    code="user.reserved",
+                    message=f"{user.name} is reserved for the tool",
+                    location=f"users[{index}].name",
                 )
             )
 

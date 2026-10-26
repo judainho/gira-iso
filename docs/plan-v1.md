@@ -462,3 +462,15 @@ punto de entrada `gira_iso.cli:app` no cambió y `python -m gira_iso.cli` funcio
 en la ayuda, `create` aparece antes que `list`. Los tests ahora parchean el módulo que usa cada
 nombre (`gira_iso.tui.app.check_credentials`, `gira_iso.cli.create.OpenAiCompatible`, ...). 281 tests.
 
+**2026-10-26 — Flujo de control, P3 / C1: el usuario de build ya no queda en la imagen.** Se confirmó
+por lectura de código que `cleanup.sh` solo borraba el historial del usuario `packer`, que tiene sudo
+sin contraseña y cuya clave privada queda en el directorio de build. Ahora el `shutdown_command` de
+Packer ejecuta `finalize.sh` (nuevo): elimina el usuario y solo su línea del archivo sudoers
+compartido, verifica que no queda ni usuario, ni grupo, ni home, ni regla sudo, ni la clave
+(marcador `gira-iso-build`), y recién entonces apaga. Si algo falla, no apaga y el build falla sin
+manifest. La verificación (goss) comprueba lo mismo en la imagen final. La política reserva los
+nombres `root`, `packer` y `gira-iso` para usuarios del spec. 14 tests nuevos, entre ellos uno que
+ejecuta el script contra un sistema simulado (éxito y cuatro modos de fallo). **No probado con un
+build real:** esta máquina no tiene QEMU. Hay que ejecutar `gira-iso create examples/nginx-web.yaml
+--name web --verify` y comprobar que aparece el check de usuario ausente.
+

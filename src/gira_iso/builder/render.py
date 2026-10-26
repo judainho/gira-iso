@@ -55,6 +55,25 @@ def render_text(name: str, context: dict[str, Any]) -> str:
     return _environment().from_string(_template_text(name)).render(**context)
 
 
+# The comment ssh-keygen puts in the build key (see builder/build.py); the finalize script
+# searches the image for it to prove the key did not survive.
+BUILD_KEY_MARKER = "gira-iso-build"
+
+
+def finalize_context(**overrides: str) -> dict[str, str]:
+    """Values for scripts/finalize.sh.j2. The defaults are the real paths; tests override them."""
+    context = {
+        "build_user": BUILD_USER,
+        "sudoers_dir": "/etc/sudoers.d",
+        "sudoers_file": "/etc/sudoers.d/90-cloud-init-users",
+        "home_root": "/home",
+        "key_marker": BUILD_KEY_MARKER,
+        "poweroff": "shutdown -P now",
+    }
+    context.update(overrides)
+    return context
+
+
 def disk_size_mb(disk_size: str) -> int:
     return int(disk_size.removesuffix("G")) * 1024
 
@@ -167,7 +186,12 @@ def render(
         "scripts/assert.sh.j2", {"packages": packages, "services": services}
     )
     cleanup_script = render_text("scripts/cleanup.sh.j2", {})
-    for name, body in (("assert.sh", assert_script), ("cleanup.sh", cleanup_script)):
+    finalize_script = render_text("scripts/finalize.sh.j2", finalize_context())
+    for name, body in (
+        ("assert.sh", assert_script),
+        ("cleanup.sh", cleanup_script),
+        ("finalize.sh", finalize_script),
+    ):
         path = provision_dir / name
         path.write_text(body, encoding="utf-8")
         path.chmod(path.stat().st_mode | stat.S_IXUSR)

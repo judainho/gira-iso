@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 
-from gira_iso.builder.render import effective_services
+from gira_iso.builder.render import BUILD_USER, effective_services
 from gira_iso.spec.models import Spec
 
 SUDO_GROUP = "sudo"
@@ -27,14 +27,15 @@ def file_sha256(content: str) -> str:
 
 
 def _user_checks(spec: Spec) -> dict[str, Any]:
-    users: dict[str, Any] = {}
+    # The user Packer connected as must not survive into the image (finalize.sh removes it).
+    users: dict[str, Any] = {BUILD_USER: {"exists": False}}
     for user in spec.users:
         users[user.name] = {"exists": True}
     return users
 
 
 def _file_checks(spec: Spec) -> dict[str, Any]:
-    files: dict[str, Any] = {}
+    files: dict[str, Any] = {f"/home/{BUILD_USER}": {"exists": False}}
     for user in spec.users:
         files[f"/home/{user.name}/.ssh/authorized_keys"] = {
             "exists": True,
@@ -59,6 +60,10 @@ def _command_checks(spec: Spec) -> dict[str, Any]:
             "exec": "cloud-init status",
             "exit-status": 0,
             "stdout": ["status: done"],
+        },
+        "no-build-user-sudo": {
+            "exec": f"! grep -rqsE '^{BUILD_USER}[[:space:]]' /etc/sudoers /etc/sudoers.d",
+            "exit-status": 0,
         },
     }
     for user in spec.users:

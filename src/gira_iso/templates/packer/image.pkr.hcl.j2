@@ -65,7 +65,9 @@ source "qemu" "ubuntu" {
   ssh_timeout            = "20m"
   ssh_handshake_attempts = 60
 
-  shutdown_command = "sudo shutdown -P now"
+  # Not a plain shutdown: the finalize script removes the build user, verifies it is gone and
+  # only then powers off. If it fails the VM stays up and the build fails.
+  shutdown_command = "sudo bash /tmp/gira-finalize.sh"
 }
 
 build {
@@ -84,5 +86,10 @@ build {
   provisioner "shell" {
     execute_command = "{% raw %}{{ .Vars }}{% endraw %} sudo -E bash -euxo pipefail '{% raw %}{{ .Path }}{% endraw %}'"
     script          = "${var.build_dir}/provision/cleanup.sh"
+  }
+
+  provisioner "file" {
+    source      = "${var.build_dir}/provision/finalize.sh"
+    destination = "/tmp/gira-finalize.sh"
   }
 }

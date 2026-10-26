@@ -18,6 +18,7 @@ from gira_iso.builder import packer
 from gira_iso.builder.base import ensure_base_image
 from gira_iso.builder.manifest import BaseRef, BuilderInfo, PolicyRef, build_manifest
 from gira_iso.builder.render import (
+    BUILD_KEY_MARKER,
     IMAGE_NAME,
     PLUGIN_VERSION,
     effective_packages,
@@ -68,7 +69,7 @@ def _build_dir(work_root: Path, sha: str) -> Path:
 
 def _generate_key(path: Path) -> str:
     subprocess.run(
-        ["ssh-keygen", "-t", "ed25519", "-N", "", "-C", "gira-iso-build", "-f", str(path)],
+        ["ssh-keygen", "-t", "ed25519", "-N", "", "-C", BUILD_KEY_MARKER, "-f", str(path)],
         check=True,
         capture_output=True,
         text=True,
