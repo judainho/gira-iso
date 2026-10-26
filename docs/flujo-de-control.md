@@ -1,6 +1,6 @@
 # Flujo de control de gira-iso
 
-Estado: **P0, P1 y primera mitad de P2 cerradas**. Las secciones 1 a 8 describen el código tal como estaba en P0 (commit `60e43e0`); donde P1 lo cambió, se indica. Este documento responde: *¿quién decide qué, en qué orden, dónde se puede parar todo y qué pasa cuando algo
+Estado: **P0, P1 y P2 cerradas**. Las secciones 1 a 8 describen el código tal como estaba en P0 (commit `60e43e0`); donde P1 lo cambió, se indica. Este documento responde: *¿quién decide qué, en qué orden, dónde se puede parar todo y qué pasa cuando algo
 falla?* La sección 9 resume los problemas encontrados; el plan para resolverlos está en la sección 10.
 Cuando cada fase se complete, las secciones se actualizan al estado nuevo (ver sección 10).
 
@@ -46,11 +46,19 @@ conversación (para que el modelo se corrija), en la vista previa y, de forma ob
 
 ## 2. Mapa de módulos
 
+Regla de dependencias (desde P2): **`cli` y `tui` → `workflow` → todo lo demás.** Nada del núcleo
+conoce a las interfaces, y el orquestador no importa `typer` ni `rich` (hay un test que lo comprueba).
+
 ```mermaid
 flowchart TB
-    subgraph UI[Presentación y orden del flujo]
-        CLI[cli.py<br/>629 líneas]
-        TUI[tui.py<br/>678 líneas]
+    subgraph UI[Interfaces: solo presentan y responden]
+        CLI["cli/ (create, images, advanced)"]
+        TUI["tui/ (app, create, images, bases, views)"]
+    end
+    subgraph WF[Orden del flujo]
+        WFC[workflow/create.py<br/>run_create]
+        PORT[workflow/ports.py<br/>Io, Review, Decision]
+        EVT[workflow/events.py]
     end
     subgraph NL[Lenguaje natural]
         SES[nl/session.py<br/>converse, policy_checker]
@@ -65,26 +73,42 @@ flowchart TB
         PKR[builder/packer.py]
         BAS[builder/base.py]
         EXPT[builder/export.py]
+        CAT[builder/catalog.py]
         MAN[builder/manifest.py]
     end
+    ERR[errors.py<br/>GiraError y códigos de salida]
+    NAM[naming.py]
     VER[verify/verify.py, vm.py, goss.py]
     BSE[bases.py<br/>bases del usuario y rutas]
     SET[settings.py]
     PSH[push/openstack.py]
 
-    CLI --> SES & BLD & VER & EXPT & PSH & BSE
-    TUI --> SES & BLD & VER & EXPT & BSE & SET
+    CLI --> WFC
+    TUI --> WFC
+    CLI --> CAT & EXPT & PSH & NAM
+    TUI --> CAT & EXPT & BSE & SET & NAM
+    WFC --> PORT & EVT
+    WFC --> SES & EXP & BLD & VER & EXPT & CAT
     SES --> CLN --> PRM
     SES --> POL
     EXP --> POL
     BLD --> POL & PKR & BAS & MAN
     BAS --> POL
     POL --> BSE
-    VER --> MAN
+    VER --> CAT
+    CAT --> MAN
+    CLI -.usa.-> ERR
+    BLD -.usa.-> ERR
 ```
 
-**Hoy no hay una regla de dependencias escrita.** `cli.py` y `tui.py` importan directamente al núcleo y
-*cada uno* decide el orden de los pasos (hallazgo H1).
+Antes de P2 `cli.py` (629 líneas) y `tui.py` (678) importaban al núcleo y cada uno decidía el orden. Ahora
+el código de interfaz se reparte por responsabilidad:
+
+| Paquete | Módulos | Contenido |
+|---|---|---|
+| `cli/` | `_app`, `_shared`, `create`, `images`, `advanced` | la app Typer; guarda de errores y helpers; `create` y `build`; `list/download/show/delete`; comandos avanzados ocultos |
+| `tui/` | `app`, `common`, `views`, `create`, `images`, `bases` | bucle del menú y clave; constantes y barra de descarga; tablas y paneles puros; crear; imágenes; bases |
+| `workflow/` | `create`, `ports`, `events` | el orquestador, el puerto `Io` y los eventos tipados |
 
 ---
 
@@ -354,7 +378,7 @@ Verificados leyendo el código; H7 requiere confirmarse con un build real.
 | H2 | 10 clases de error sin raíz propia; el código de salida lo elige cada comando | media | **resuelto en P1**: `errors.GiraError` con `exit_code` |
 | H3 | Dos reglas de nombre de imagen (63 vs 64 caracteres) | baja | **resuelto en P1**: `naming.py` (64 caracteres) |
 | H4 | Progreso por tres callbacks sueltos en vez de eventos tipados | media | **resuelto en P2**: `workflow/events.py` (los callbacks de `build_image` se conservan por dentro) |
-| H5 | `cli.py` (629) y `tui.py` (678) mezclan argumentos, presentación, flujo y comandos avanzados | media | parcial: el flujo ya salió de ambos; falta dividirlos en paquetes (P2, segunda mitad) |
+| H5 | `cli.py` (629) y `tui.py` (678) mezclan argumentos, presentación, flujo y comandos avanzados | media | **resuelto en P2**: paquetes `cli/` y `tui/` (ningún módulo pasa de 250 líneas) |
 | H6 | Lectura de manifests triplicada (`cli._load_manifest`, `verify.load_manifest`, `export.scan_builds`) | baja | **resuelto en P1**: `builder/catalog.py` |
 | H7 | El usuario de build `packer` (sudo NOPASSWD + clave pública del build) se crea por cloud-init y la limpieza no lo elimina; la clave privada queda en el directorio de build. Si se confirma, **toda imagen producida acepta esa clave** | **alta (seguridad)** | pendiente (P3, C1) |
 | H8 | Un build fallido o cancelado deja el directorio con la clave privada; no hay forma de limpiar huérfanos | alta | pendiente (P3, C2) |

@@ -209,7 +209,6 @@ class FakeCompleter:
 
 
 def _nl_fixture(monkeypatch, tmp_path: Path, *replies: str):
-    import gira_iso.cli as cli
 
     build_dir = write_build(tmp_path / "builds", name="web")
     fake = BuildResult(
@@ -221,7 +220,9 @@ def _nl_fixture(monkeypatch, tmp_path: Path, *replies: str):
     monkeypatch.setattr(
         "gira_iso.workflow.create.build_image", lambda spec, **kwargs: built.append(spec) or fake
     )
-    monkeypatch.setattr(cli, "OpenAiCompatible", lambda config: FakeCompleter(*replies))
+    monkeypatch.setattr(
+        "gira_iso.cli.create.OpenAiCompatible", lambda config: FakeCompleter(*replies)
+    )
     monkeypatch.delenv("GIRA_ISO_LLM_API_KEY", raising=False)
     return built
 
@@ -279,7 +280,6 @@ def test_natural_language_refusal_builds_nothing(monkeypatch, tmp_path: Path) ->
 
 
 def _tui_fixture(monkeypatch, tmp_path: Path, *replies: str) -> list:
-    import gira_iso.tui as tui
 
     build_dir = write_build(tmp_path / "builds", name="web")
     fake = BuildResult(
@@ -296,8 +296,10 @@ def _tui_fixture(monkeypatch, tmp_path: Path, *replies: str) -> list:
         return fake
 
     monkeypatch.setattr("gira_iso.workflow.create.build_image", fake_build)
-    monkeypatch.setattr(tui, "OpenAiCompatible", lambda config: FakeCompleter(*replies))
-    monkeypatch.setattr(tui, "check_credentials", lambda config: CredentialCheck("ok"))
+    monkeypatch.setattr(
+        "gira_iso.tui.create.OpenAiCompatible", lambda config: FakeCompleter(*replies)
+    )
+    monkeypatch.setattr("gira_iso.tui.app.check_credentials", lambda config: CredentialCheck("ok"))
     monkeypatch.delenv("GIRA_ISO_LLM_API_KEY", raising=False)
     return built
 
@@ -347,10 +349,9 @@ def test_menu_refuses_an_installer_iso_as_a_base(monkeypatch, tmp_path: Path) ->
 
 
 def test_menu_lists_existing_images(monkeypatch, tmp_path: Path) -> None:
-    import gira_iso.tui as tui
 
     _tui_fixture(monkeypatch, tmp_path)
-    monkeypatch.setattr(tui, "builds_dir", lambda: tmp_path / "builds")
+    monkeypatch.setattr("gira_iso.tui.images.builds_dir", lambda: tmp_path / "builds")
 
     result = runner.invoke(app, [], input="k\n1\n\n0\n")
 
@@ -373,7 +374,6 @@ def _spec_reply() -> str:
 
 
 def test_an_invalid_key_is_rejected_and_the_user_can_retry(monkeypatch, tmp_path: Path) -> None:
-    import gira_iso.tui as tui
 
     _tui_fixture(monkeypatch, tmp_path)
     seen: list[str] = []
@@ -384,7 +384,7 @@ def test_an_invalid_key_is_rejected_and_the_user_can_retry(monkeypatch, tmp_path
             return CredentialCheck("invalid", "el proveedor rechazó la clave")
         return CredentialCheck("ok")
 
-    monkeypatch.setattr(tui, "check_credentials", check)
+    monkeypatch.setattr("gira_iso.tui.app.check_credentials", check)
 
     result = runner.invoke(app, [], input="bad\ngood\n0\n")
 
@@ -395,11 +395,10 @@ def test_an_invalid_key_is_rejected_and_the_user_can_retry(monkeypatch, tmp_path
 
 
 def test_three_invalid_keys_end_the_session(monkeypatch, tmp_path: Path) -> None:
-    import gira_iso.tui as tui
 
     _tui_fixture(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        tui, "check_credentials", lambda config: CredentialCheck("invalid", "rechazada")
+        "gira_iso.tui.app.check_credentials", lambda config: CredentialCheck("invalid", "rechazada")
     )
 
     result = runner.invoke(app, [], input="a\nb\nc\n")
@@ -410,11 +409,11 @@ def test_three_invalid_keys_end_the_session(monkeypatch, tmp_path: Path) -> None
 
 
 def test_an_unverifiable_key_does_not_block_the_user(monkeypatch, tmp_path: Path) -> None:
-    import gira_iso.tui as tui
 
     _tui_fixture(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        tui, "check_credentials", lambda config: CredentialCheck("unverified", "sin red")
+        "gira_iso.tui.app.check_credentials",
+        lambda config: CredentialCheck("unverified", "sin red"),
     )
 
     result = runner.invoke(app, [], input="k\n0\n")
@@ -424,7 +423,6 @@ def test_an_unverifiable_key_does_not_block_the_user(monkeypatch, tmp_path: Path
 
 
 def test_examples_can_be_picked_by_number_and_tokens_are_shown(monkeypatch, tmp_path: Path) -> None:
-    import gira_iso.tui as tui
     from gira_iso.nl.client import Completion
 
     _tui_fixture(monkeypatch, tmp_path, _spec_reply())
@@ -439,7 +437,7 @@ def test_examples_can_be_picked_by_number_and_tokens_are_shown(monkeypatch, tmp_
             )
 
     completer = Counting(_spec_reply())
-    monkeypatch.setattr(tui, "OpenAiCompatible", lambda config: completer)
+    monkeypatch.setattr("gira_iso.tui.create.OpenAiCompatible", lambda config: completer)
 
     result = runner.invoke(app, [], input=f"k\n4\n\n2\nweb\nn\nn\n{tmp_path / 'out'}\n0\n")
 
@@ -462,14 +460,13 @@ def test_name_and_destination_are_remembered_for_the_next_run(monkeypatch, tmp_p
 
 
 def test_ctrl_c_in_an_action_returns_to_the_menu(monkeypatch, tmp_path: Path) -> None:
-    import gira_iso.tui as tui
 
     _tui_fixture(monkeypatch, tmp_path)
 
     def boom(console):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(tui, "list_images", boom)
+    monkeypatch.setattr("gira_iso.tui.app.list_images", boom)
 
     result = runner.invoke(app, [], input="k\n1\n\n0\n")
 
@@ -534,10 +531,9 @@ def test_delete_refuses_a_build_outside_the_work_root(tmp_path: Path) -> None:
 
 
 def test_menu_image_detail_export_and_delete(monkeypatch, tmp_path: Path) -> None:
-    import gira_iso.tui as tui
 
     _tui_fixture(monkeypatch, tmp_path)
-    monkeypatch.setattr(tui, "builds_dir", lambda: tmp_path / "builds")
+    monkeypatch.setattr("gira_iso.tui.images.builds_dir", lambda: tmp_path / "builds")
     out = tmp_path / "out"
 
     steps = [
@@ -561,10 +557,9 @@ def test_menu_image_detail_export_and_delete(monkeypatch, tmp_path: Path) -> Non
 
 
 def test_menu_delete_needs_the_exact_name(monkeypatch, tmp_path: Path) -> None:
-    import gira_iso.tui as tui
 
     _tui_fixture(monkeypatch, tmp_path)
-    monkeypatch.setattr(tui, "builds_dir", lambda: tmp_path / "builds")
+    monkeypatch.setattr("gira_iso.tui.images.builds_dir", lambda: tmp_path / "builds")
 
     steps = ["k", "1", "1", "eliminar", "wrong", "volver", "0"]
     result = runner.invoke(app, [], input="\n".join(steps) + "\n")
@@ -574,10 +569,9 @@ def test_menu_delete_needs_the_exact_name(monkeypatch, tmp_path: Path) -> None:
 
 
 def test_menu_downloads_an_official_base(monkeypatch, tmp_path: Path) -> None:
-    import gira_iso.tui as tui
 
     _tui_fixture(monkeypatch, tmp_path)
-    monkeypatch.setattr(tui, "cache_dir", lambda: tmp_path / "empty-cache")
+    monkeypatch.setattr("gira_iso.tui.bases.cache_dir", lambda: tmp_path / "empty-cache")
     calls: list[tuple[str, str]] = []
 
     def fake_ensure(os_name, version, allowlist, on_progress=None):
@@ -585,7 +579,7 @@ def test_menu_downloads_an_official_base(monkeypatch, tmp_path: Path) -> None:
         on_progress(5, 10)
         return tmp_path / "base.img", "a" * 64
 
-    monkeypatch.setattr(tui, "ensure_base_image", fake_ensure)
+    monkeypatch.setattr("gira_iso.tui.bases.ensure_base_image", fake_ensure)
 
     result = runner.invoke(app, [], input="k\n3\n1\n0\n")
 
@@ -653,7 +647,6 @@ def test_describe_lists_the_hashes_a_reader_needs(tmp_path: Path) -> None:
 
 
 def _automation_fixture(monkeypatch, tmp_path: Path, *replies: str) -> list:
-    import gira_iso.cli as cli
 
     build_dir = write_build(tmp_path / "builds", name="web")
     fake = BuildResult(
@@ -669,7 +662,9 @@ def _automation_fixture(monkeypatch, tmp_path: Path, *replies: str) -> list:
         return fake
 
     monkeypatch.setattr("gira_iso.workflow.create.build_image", fake_build)
-    monkeypatch.setattr(cli, "OpenAiCompatible", lambda config: FakeCompleter(*replies))
+    monkeypatch.setattr(
+        "gira_iso.cli.create.OpenAiCompatible", lambda config: FakeCompleter(*replies)
+    )
     monkeypatch.delenv("GIRA_ISO_LLM_API_KEY", raising=False)
     return built
 
@@ -782,7 +777,6 @@ def test_show_json_is_the_manifest(tmp_path: Path) -> None:
 
 
 def test_menu_tells_the_model_which_base_was_chosen(monkeypatch, tmp_path: Path) -> None:
-    import gira_iso.tui as tui
 
     _tui_fixture(monkeypatch, tmp_path)
 
@@ -792,7 +786,7 @@ def test_menu_tells_the_model_which_base_was_chosen(monkeypatch, tmp_path: Path)
             return super().complete(system, user)
 
     completer = Capturing(_spec_reply())
-    monkeypatch.setattr(tui, "OpenAiCompatible", lambda config: completer)
+    monkeypatch.setattr("gira_iso.tui.create.OpenAiCompatible", lambda config: completer)
 
     runner.invoke(app, [], input=f"k\n4\n1\nun nginx\nweb\nn\nn\n{tmp_path / 'out'}\n0\n")
 

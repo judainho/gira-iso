@@ -455,3 +455,10 @@ implementan el puerto `Io` y reaccionan a eventos (`Step`, `Download`, `LogLine`
 front end falso; 281 en total. Los tests de CLI y menú ahora parchean
 `gira_iso.workflow.create.build_image`. Queda para P2b dividir `cli.py` y `tui.py` en paquetes.
 
+**2026-10-26 — Flujo de control, P2b: `cli/` y `tui/` en paquetes.** `cli.py` y `tui.py` se dividieron
+por responsabilidad con un script basado en `ast` (sin tocar la lógica): `cli/{_app,_shared,create,
+images,advanced}` y `tui/{app,common,views,create,images,bases}`. Ningún módulo pasa de 250 líneas. El
+punto de entrada `gira_iso.cli:app` no cambió y `python -m gira_iso.cli` funciona. Cambio cosmético:
+en la ayuda, `create` aparece antes que `list`. Los tests ahora parchean el módulo que usa cada
+nombre (`gira_iso.tui.app.check_credentials`, `gira_iso.cli.create.OpenAiCompatible`, ...). 281 tests.
+
