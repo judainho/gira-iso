@@ -384,7 +384,7 @@ Verificados leyendo el código; H7 requiere confirmarse con un build real.
 | H8 | Un build fallido o cancelado deja el directorio con la clave privada; no hay forma de limpiar huérfanos | alta | **control C2 implementado en P3**: la clave se borra en `finally`; los fallidos llevan `FAILED`; `gira-iso clean` y la opción del menú |
 | H9 | Sin candado: dos builds iguales en el mismo segundo chocan con `RuntimeError` | baja | **control C3 implementado en P3**: `builder/lock.py` (`flock`) y sufijo `-2`, `-3` si el nombre existe |
 | H10 | Sin preflight: QEMU, KVM o espacio faltantes se descubren dentro de Packer | alta (experiencia) | **control C4 implementado en P3**: `workflow/preflight.py`; el menú muestra el estado al abrir |
-| H11 | Sin timeout global del build; una descarga interrumpida deja un `.part` | media | pendiente (P3, C5 y C6) |
+| H11 | Sin timeout global del build; una descarga interrumpida deja un `.part` | media | **controles C5 y C6 implementados en P3**: descarga sin `.part` huérfano y con timeout; VM detenida; timeout global de Packer |
 | H12 | `cli create` y el comando `build` solo capturan `BuildRejected`: un fallo de Packer, de checksum o de verificación termina en traceback | alta | **resuelto en P1**: guarda `_guarded` en todos los comandos |
 
 ---

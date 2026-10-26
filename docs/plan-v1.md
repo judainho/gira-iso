@@ -499,3 +499,14 @@ sigue siendo utilizable. Los tests desactivan el preflight real con una fixture 
 la suite pase en una máquina sin QEMU; 20 tests lo prueban por separado. Primera comprobación real: en
 la máquina de desarrollo detecta justo el permiso de `/dev/kvm` que faltaba.
 
+**2026-10-26 — Flujo de control, P3 / C5 y C6: cancelar o agotar el tiempo no deja nada vivo.**
+Al revisar la cancelación apareció un fallo real: si `Ctrl+C` llegaba mientras la VM de verificación
+arrancaba (dentro de `__enter__`), Python no llamaba a `__exit__` y el proceso QEMU quedaba
+huérfano con la imagen abierta; ahora `__enter__` detiene el invitado ante cualquier fallo. La
+descarga de la base borra el `.part` ante cualquier causa (checksum, red, `Ctrl+C`), convierte los
+errores de red en `BaseImageError` (código 3, antes eran un traceback) y tiene timeout por operación
+de socket (60 s). Packer tiene un timeout global de 45 minutos (`GIRA_ISO_BUILD_TIMEOUT_MINUTES` lo
+cambia; 10 minutos para `packer init`): al agotarse se termina el proceso, se mata si no sale en
+20 s y se informa con `PackerError`. 16 tests nuevos, entre ellos uno con un proceso real detenido por
+el temporizador. Con esto se cierran C1 a C6; queda P4 (documento final).
+

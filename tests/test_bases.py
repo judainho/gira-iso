@@ -123,7 +123,7 @@ def test_download_verifies_the_checksum_and_reports_progress(monkeypatch, tmp_pa
 
     payload = b"x" * (2 * 1024 * 1024 + 5)
     monkeypatch.setattr(base, "cache_dir", lambda: tmp_path / "cache")
-    monkeypatch.setattr(urllib.request, "urlopen", lambda url: FakeResponse(payload))
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=None: FakeResponse(payload))
     seen: list[tuple[int, int]] = []
 
     path, sha = ensure_base_image(
@@ -144,7 +144,9 @@ def test_download_with_a_wrong_checksum_leaves_nothing_behind(monkeypatch, tmp_p
     import gira_iso.builder.base as base
 
     monkeypatch.setattr(base, "cache_dir", lambda: tmp_path / "cache")
-    monkeypatch.setattr(urllib.request, "urlopen", lambda url: FakeResponse(b"tampered"))
+    monkeypatch.setattr(
+        urllib.request, "urlopen", lambda url, timeout=None: FakeResponse(b"tampered")
+    )
 
     with pytest.raises(BaseImageError, match="checksum"):
         ensure_base_image("ubuntu", "99.04", _official("0" * 64))

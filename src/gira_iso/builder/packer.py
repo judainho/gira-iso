@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
@@ -43,11 +44,31 @@ def version() -> str:
     return match.group(1) if match else "unknown"
 
 
+DEFAULT_BUILD_TIMEOUT = 45 * 60  # seconds
+INIT_TIMEOUT = 10 * 60
+TIMEOUT_ENV = "GIRA_ISO_BUILD_TIMEOUT_MINUTES"
+
+
+def build_timeout() -> float:
+    """Seconds Packer may run. `GIRA_ISO_BUILD_TIMEOUT_MINUTES` overrides the default."""
+    raw = os.environ.get(TIMEOUT_ENV)
+    try:
+        minutes = float(raw) if raw else 0
+    except ValueError:
+        minutes = 0
+    return minutes * 60 if minutes > 0 else DEFAULT_BUILD_TIMEOUT
+
+
+def _human(seconds: float) -> str:
+    return f"{seconds / 60:g} minutes" if seconds >= 120 else f"{seconds:g} seconds"
+
+
 def _run(
     args: list[str],
     log_path: Path,
     stream: bool,
     on_line: Callable[[str], None] | None = None,
+    timeout: float | None = None,
 ) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, PACKER_NO_COLOR="1", CHECKPOINT_DISABLE="1")
@@ -61,6 +82,20 @@ def _run(
             env=env,
         )
         assert process.stdout is not None
+        timed_out = threading.Event()
+
+        def stop_when_late() -> None:
+            timed_out.set()
+            process.terminate()
+            try:
+                process.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+        watchdog = threading.Timer(timeout, stop_when_late) if timeout else None
+        if watchdog is not None:
+            watchdog.daemon = True
+            watchdog.start()
         try:
             for line in process.stdout:
                 log.write(line)
@@ -79,6 +114,16 @@ def _run(
                 process.kill()
                 process.wait()
             raise
+        finally:
+            if watchdog is not None:
+                watchdog.cancel()
+
+    if timed_out.is_set():
+        raise PackerError(
+            f"packer did not finish within {_human(timeout or 0)} and was stopped; "
+            f"raise {TIMEOUT_ENV} if the build is just slow",
+            log_path,
+        )
 
     if code != 0:
         tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
@@ -86,7 +131,7 @@ def _run(
 
 
 def init(template_dir: Path, log_path: Path) -> None:
-    _run([_binary(), "init", str(template_dir)], log_path, stream=False)
+    _run([_binary(), "init", str(template_dir)], log_path, stream=False, timeout=INIT_TIMEOUT)
 
 
 def build(
@@ -99,4 +144,4 @@ def build(
     for key, value in variables.items():
         args += ["-var", f"{key}={value}"]
     args.append(str(template_dir))
-    _run(args, log_path, stream=True, on_line=on_line)
+    _run(args, log_path, stream=True, on_line=on_line, timeout=build_timeout())

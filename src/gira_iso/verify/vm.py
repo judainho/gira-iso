@@ -64,11 +64,17 @@ class VirtualMachine:
 
     def __enter__(self) -> VirtualMachine:
         self.workdir.mkdir(parents=True, exist_ok=True)
-        self._require_tools()
-        self._prepare_disk()
-        self._prepare_seed()
-        self._boot()
-        self._wait_for_ssh()
+        # If __enter__ raises, Python never calls __exit__: stop the guest here, or a Ctrl+C
+        # while it boots leaves a QEMU process running with the image open.
+        try:
+            self._require_tools()
+            self._prepare_disk()
+            self._prepare_seed()
+            self._boot()
+            self._wait_for_ssh()
+        except BaseException:
+            self.stop()
+            raise
         return self
 
     def __exit__(self, *_: object) -> None:

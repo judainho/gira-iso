@@ -15,6 +15,8 @@ from urllib.parse import unquote, urlparse
 from gira_iso.errors import EXIT_ENVIRONMENT, GiraError
 from gira_iso.policy.evaluate import Allowlist
 
+DOWNLOAD_TIMEOUT = 60  # seconds per socket operation
+
 
 class BaseImageError(GiraError):
     """No trustworthy base could be obtained: network, checksum or a missing pin."""
@@ -69,19 +71,30 @@ def ensure_base_image(
         )
 
     partial = target.with_suffix(target.suffix + ".part")
-    with urllib.request.urlopen(url) as response, partial.open("wb") as handle:
-        total = int(response.headers.get("Content-Length") or 0)
-        done = 0
-        while chunk := response.read(1024 * 1024):
-            handle.write(chunk)
-            done += len(chunk)
-            if on_progress is not None:
-                on_progress(done, total)
+    try:
+        # The timeout applies to each socket operation, so a stalled connection fails
+        # instead of hanging; a slow but alive download is unaffected.
+        with (
+            urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT) as response,
+            partial.open("wb") as handle,
+        ):
+            total = int(response.headers.get("Content-Length") or 0)
+            done = 0
+            while chunk := response.read(1024 * 1024):
+                handle.write(chunk)
+                done += len(chunk)
+                if on_progress is not None:
+                    on_progress(done, total)
 
-    actual = _sha256(partial)
-    if actual != expected:
+        actual = _sha256(partial)
+        if actual != expected:
+            raise BaseImageError(
+                f"downloaded base image has checksum {actual}, expected {expected}"
+            )
+        partial.rename(target)
+    except OSError as exc:
+        raise BaseImageError(f"could not download {url}: {exc}") from exc
+    finally:
+        # Mismatch, network error, Ctrl+C: whatever stopped the download, no partial file stays.
         partial.unlink(missing_ok=True)
-        raise BaseImageError(f"downloaded base image has checksum {actual}, expected {expected}")
-
-    partial.rename(target)
     return target, expected
