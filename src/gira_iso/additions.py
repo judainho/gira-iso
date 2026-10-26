@@ -109,7 +109,8 @@ def list_additions(*, include_inactive: bool = False) -> list[Addition]:
     return _read()
 
 
-def _refuse_in_strict_mode() -> None:
+def ensure_enabled() -> None:
+    """Raise AdditionsDisabled in strict mode. Callers check it before spending any network."""
     if strict_mode():
         raise AdditionsDisabled(
             "strict mode is on: the allowlist cannot be extended from this machine "
@@ -120,7 +121,7 @@ def _refuse_in_strict_mode() -> None:
 
 def add_addition(addition: Addition) -> Addition:
     """Store one approval. Adding the same package for the same release again changes nothing."""
-    _refuse_in_strict_mode()
+    ensure_enabled()
     entries = _read()
     for existing in entries:
         if (existing.package, existing.base_version) == (addition.package, addition.base_version):
@@ -133,7 +134,7 @@ def add_addition(addition: Addition) -> Addition:
 
 def remove_addition(package: str, base_version: str | None = None) -> list[Addition]:
     """Remove a package (for one release, or for all). Returns what was removed."""
-    _refuse_in_strict_mode()
+    ensure_enabled()
     entries = _read()
     removed = [
         e for e in entries if e.package == package and base_version in (None, e.base_version)

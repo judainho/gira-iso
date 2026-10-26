@@ -567,3 +567,16 @@ modo estricto (`GIRA_ISO_STRICT=1`, o implícito con `GIRA_ISO_ALLOWLIST` salvo
 ubuntu X)". 41 tests nuevos; 411 en total. Siguen: B (consulta a Launchpad y comando `allow`), C (la IA
 traduce nombres y se integra al flujo), D (menú y documentación).
 
+**2026-10-26 — Paquetes agregados localmente, fase B: consulta al archivo y comando `allow`.**
+`archive.py` pregunta a Launchpad (HTTPS, sin credenciales) si Ubuntu publica un paquete para esa
+versión (`jammy`/`noble`): cuenta solo los pockets Release, Updates y Security, y devuelve componente
+y versión. Un fallo de red es `ArchiveUnavailable` (código 3), **nunca** "no existe". Launchpad tardó de
+0,6 s a 7,8 s para consultas equivalentes el mismo día, así que el timeout es de 30 s con un reintento
+ante red caída (un primer valor de 10 s falló en la prueba real). `proposals.py` decide si un paquete
+puede ofrecerse: rechaza nombre inválido, ya permitido, `never_add`, inexistente y los componentes
+`multiverse` y `restricted`; lo que ya está resuelto no gasta red. Nuevo `gira-iso allow add/list/remove`
+(máximo 5 por invocación, confirmación por paquete con "no" por defecto, `--yes`, `--base`,
+`list --json`); en modo estricto falla antes de consultar. Probado contra el archivo real: `opencode` →
+no publicado; `netcat-traditional` → existe en `universe` y pregunta. Prueba `pytest -m network` contra
+Launchpad, desactivada por defecto. 63 tests nuevos; 474 en total.
+

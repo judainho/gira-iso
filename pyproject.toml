@@ -36,8 +36,11 @@ gira-iso = "gira_iso.cli:app"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
-markers = ["real_preflight: run the real environment checks instead of the test stub"]
+addopts = "-q -m 'not network'"
+markers = [
+  "real_preflight: run the real environment checks instead of the test stub",
+  "network: needs the internet (Launchpad); deselected by default, run with -m network",
+]
 
 [tool.ruff]
 line-length = 100
