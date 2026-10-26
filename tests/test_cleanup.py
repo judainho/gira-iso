@@ -82,7 +82,7 @@ def test_the_key_is_deleted_on_ctrl_c_and_the_build_is_marked(stubbed, tmp_path:
         build_image(spec(), work_root=tmp_path / "builds", allowlist=load_allowlist())
 
     assert key_files(tmp_path / "builds") == []
-    (build_dir,) = (tmp_path / "builds").iterdir()
+    (build_dir,) = [d for d in (tmp_path / "builds").iterdir() if d.is_dir()]
     assert (build_dir / FAILED_MARKER).read_text().strip().endswith("interrupted")
 
 
@@ -92,7 +92,7 @@ def test_a_build_that_produced_no_image_is_marked_with_the_reason(stubbed, tmp_p
     with pytest.raises(BuildError):
         build_image(spec(), work_root=tmp_path / "builds", allowlist=load_allowlist())
 
-    (build_dir,) = (tmp_path / "builds").iterdir()
+    (build_dir,) = [d for d in (tmp_path / "builds").iterdir() if d.is_dir()]
     assert "produced no image" in (build_dir / FAILED_MARKER).read_text()
     assert key_files(tmp_path / "builds") == []
 

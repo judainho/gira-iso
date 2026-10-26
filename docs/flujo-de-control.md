@@ -382,7 +382,7 @@ Verificados leyendo el código; H7 requiere confirmarse con un build real.
 | H6 | Lectura de manifests triplicada (`cli._load_manifest`, `verify.load_manifest`, `export.scan_builds`) | baja | **resuelto en P1**: `builder/catalog.py` |
 | H7 | El usuario de build `packer` (sudo NOPASSWD + clave pública del build) se crea por cloud-init y la limpieza no lo elimina; la clave privada queda en el directorio de build. Si se confirma, **toda imagen producida acepta esa clave** | **alta (seguridad)** | **control C1 implementado en P3**: `finalize.sh` elimina el usuario, verifica y recién apaga; goss lo comprueba. *Pendiente confirmar con un build real* |
 | H8 | Un build fallido o cancelado deja el directorio con la clave privada; no hay forma de limpiar huérfanos | alta | **control C2 implementado en P3**: la clave se borra en `finally`; los fallidos llevan `FAILED`; `gira-iso clean` y la opción del menú |
-| H9 | Sin candado: dos builds iguales en el mismo segundo chocan con `RuntimeError` | baja | pendiente (P3, C3) |
+| H9 | Sin candado: dos builds iguales en el mismo segundo chocan con `RuntimeError` | baja | **control C3 implementado en P3**: `builder/lock.py` (`flock`) y sufijo `-2`, `-3` si el nombre existe |
 | H10 | Sin preflight: QEMU, KVM o espacio faltantes se descubren dentro de Packer | alta (experiencia) | pendiente (P3, C4) |
 | H11 | Sin timeout global del build; una descarga interrumpida deja un `.part` | media | pendiente (P3, C5 y C6) |
 | H12 | `cli create` y el comando `build` solo capturan `BuildRejected`: un fallo de Packer, de checksum o de verificación termina en traceback | alta | **resuelto en P1**: guarda `_guarded` en todos los comandos |

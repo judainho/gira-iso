@@ -481,3 +481,10 @@ herramienta creó y no llegaron a tener manifest (marcador o subdirectorios prop
 carpetas ajenas ni sigue enlaces simbólicos. Nuevo comando `gira-iso clean` (pide confirmación; `--yes`
 la omite) y, en la pantalla de imágenes del menú, la opción `limpiar`. 15 tests nuevos.
 
+**2026-10-26 — Flujo de control, P3 / C3: un build a la vez.** `builder/lock.py` toma un `flock`
+exclusivo sobre `builds/.lock` durante todo `build_image`; el segundo intento falla con `BuildBusy`
+(código 3) y nombra el proceso que lo tiene. El kernel suelta el candado si el proceso muere, así que
+un cierre brusco no lo deja trabado. `gira-iso clean` toma el mismo candado: un build en curso parece
+incompleto y no debe borrarse. Si el directorio ya existe (mismo spec en el mismo segundo) se añade
+`-2`, `-3` en lugar de fallar. 8 tests nuevos.
+

@@ -18,6 +18,7 @@ from gira_iso.bases import builds_dir
 from gira_iso.builder import packer
 from gira_iso.builder.base import ensure_base_image
 from gira_iso.builder.catalog import FAILED_MARKER
+from gira_iso.builder.lock import build_lock
 from gira_iso.builder.manifest import BaseRef, BuilderInfo, PolicyRef, build_manifest
 from gira_iso.builder.render import (
     BUILD_KEY_MARKER,
@@ -62,11 +63,15 @@ class BuildResult:
 
 def _build_dir(work_root: Path, sha: str) -> Path:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    directory = work_root / f"{stamp}-{sha[:12]}"
-    if directory.exists():
-        raise BuildError(f"build directory already exists: {directory}")
-    directory.mkdir(parents=True)
-    return directory
+    base = f"{stamp}-{sha[:12]}"
+    for attempt in range(1, 100):
+        directory = work_root / (base if attempt == 1 else f"{base}-{attempt}")
+        try:
+            directory.mkdir(parents=True)
+        except FileExistsError:
+            continue
+        return directory
+    raise BuildError(f"could not find a free build directory for {base} in {work_root}")
 
 
 def _mark_failed(build_dir: Path, error: BaseException) -> None:
@@ -141,67 +146,69 @@ def build_image(
     reference = allowlist.base_image(spec.base.os, spec.base.version)
     assert reference is not None
 
-    build_dir = _build_dir(work_root or builds_dir(), sha)
-    logs = build_dir / "logs"
-    logs.mkdir()
+    root = work_root or builds_dir()
+    with build_lock(root):
+        build_dir = _build_dir(root, sha)
+        logs = build_dir / "logs"
+        logs.mkdir()
 
-    key_path = build_dir / "id_ed25519"
-    # The build key is a credential for a user that must not outlive the build. Whatever happens
-    # (success, failure, Ctrl+C) it is deleted, and a build that did not finish says so.
-    try:
-        public_key = _generate_key(key_path)
+        key_path = build_dir / "id_ed25519"
+        # The build key is a credential for a user that must not outlive the build. Whatever happens
+        # (success, failure, Ctrl+C) it is deleted, and a build that did not finish says so.
+        try:
+            public_key = _generate_key(key_path)
 
-        step("Generando la plantilla de Packer y el seed de cloud-init")
-        rendered = render(spec, build_dir, allowlist.mandatory_packages, public_key)
+            step("Generando la plantilla de Packer y el seed de cloud-init")
+            rendered = render(spec, build_dir, allowlist.mandatory_packages, public_key)
 
-        template_dir = rendered.packer_dir
-        step("Inicializando Packer (plugin qemu)")
-        packer.init(template_dir, logs / "packer-init.log")
-        step("Construyendo la imagen: arranca una VM, instala y limpia")
-        packer.build(
-            template_dir,
-            {
-                "base_image": str(base_path.resolve()),
-                "base_sha256": base_sha,
-                "seed_dir": str(rendered.seed_dir.resolve()),
-                "ssh_private_key_file": str(key_path.resolve()),
-                "build_dir": str(build_dir.resolve()),
-            },
-            logs / "packer-build.log",
-            on_line=on_line,
-        )
+            template_dir = rendered.packer_dir
+            step("Inicializando Packer (plugin qemu)")
+            packer.init(template_dir, logs / "packer-init.log")
+            step("Construyendo la imagen: arranca una VM, instala y limpia")
+            packer.build(
+                template_dir,
+                {
+                    "base_image": str(base_path.resolve()),
+                    "base_sha256": base_sha,
+                    "seed_dir": str(rendered.seed_dir.resolve()),
+                    "ssh_private_key_file": str(key_path.resolve()),
+                    "build_dir": str(build_dir.resolve()),
+                },
+                logs / "packer-build.log",
+                on_line=on_line,
+            )
 
-        image = build_dir / "image" / IMAGE_NAME
-        if not image.is_file():
-            raise BuildError(f"packer finished but produced no image at {image}")
+            image = build_dir / "image" / IMAGE_NAME
+            if not image.is_file():
+                raise BuildError(f"packer finished but produced no image at {image}")
 
-        step("Registrando el manifest con hashes y procedencia")
-        manifest = build_manifest(
-            spec=spec,
-            spec_sha256=sha,
-            name=name,
-            base=BaseRef(
-                os=spec.base.os,
-                version=spec.base.version,
-                url=reference["url"],
-                sha256=base_sha,
-            ),
-            policy=_policy_ref(),
-            builder=BuilderInfo(
-                packer_version=packer.version(),
-                plugin_version=PLUGIN_VERSION,
-                template_sha256=rendered.template_sha256,
-            ),
-            packages=effective_packages(spec, allowlist.mandatory_packages),
-            services=effective_services(spec),
-            artifact_path=image,
-            virtual_size_bytes=_virtual_size(image),
-        )
-        manifest_path = manifest.write(build_dir)
+            step("Registrando el manifest con hashes y procedencia")
+            manifest = build_manifest(
+                spec=spec,
+                spec_sha256=sha,
+                name=name,
+                base=BaseRef(
+                    os=spec.base.os,
+                    version=spec.base.version,
+                    url=reference["url"],
+                    sha256=base_sha,
+                ),
+                policy=_policy_ref(),
+                builder=BuilderInfo(
+                    packer_version=packer.version(),
+                    plugin_version=PLUGIN_VERSION,
+                    template_sha256=rendered.template_sha256,
+                ),
+                packages=effective_packages(spec, allowlist.mandatory_packages),
+                services=effective_services(spec),
+                artifact_path=image,
+                virtual_size_bytes=_virtual_size(image),
+            )
+            manifest_path = manifest.write(build_dir)
 
-        return BuildResult(build_dir=build_dir, image=image, manifest=manifest_path)
-    except BaseException as exc:
-        _mark_failed(build_dir, exc)
-        raise
-    finally:
-        _discard_key(key_path)
+            return BuildResult(build_dir=build_dir, image=image, manifest=manifest_path)
+        except BaseException as exc:
+            _mark_failed(build_dir, exc)
+            raise
+        finally:
+            _discard_key(key_path)

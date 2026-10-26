@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 
 from gira_iso.builder.catalog import directory_size, find_incomplete
+from gira_iso.builder.lock import build_lock
 from gira_iso.builder.manifest import MANIFEST_NAME, Manifest, file_sha256
 from gira_iso.errors import EXIT_INVALID, EXIT_REJECTED, GiraError
 
@@ -66,12 +67,17 @@ def delete_build(manifest_path: Path, work_root: Path) -> Path:
 
 
 def remove_incomplete(work_root: Path) -> list[tuple[Path, int]]:
-    """Delete every incomplete build under `work_root`; returns (directory, bytes freed)."""
+    """Delete every incomplete build under `work_root`; returns (directory, bytes freed).
+
+    A build in progress looks incomplete too, so this takes the build lock first and raises
+    BuildBusy instead of deleting a directory somebody is writing to.
+    """
     removed = []
-    for directory in find_incomplete(work_root):
-        size = directory_size(directory)
-        shutil.rmtree(directory)
-        removed.append((directory, size))
+    with build_lock(work_root):
+        for directory in find_incomplete(work_root):
+            size = directory_size(directory)
+            shutil.rmtree(directory)
+            removed.append((directory, size))
     return removed
 
 
