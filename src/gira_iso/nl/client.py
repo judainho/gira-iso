@@ -163,9 +163,10 @@ def interpret(
     *,
     completer: Completer,
     retries: int = 1,
+    context: str | None = None,
 ) -> Inference:
     """Interpret one request. A validation failure is fed back to the model once."""
-    user = user_message(request)
+    user = user_message(request, context)
     last_error = ""
     raw = ""
     started = time.monotonic()

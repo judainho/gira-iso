@@ -38,6 +38,7 @@ def converse(
     answer: Answerer | None = None,
     rounds: int = MAX_ROUNDS,
     busy: Callable[[], AbstractContextManager[object]] | None = None,
+    context: str | None = None,
 ) -> SessionResult:
     """Interpret `request`; `answer` receives the model's questions and returns the replies."""
     text = request
@@ -46,7 +47,7 @@ def converse(
     for _ in range(rounds):
         try:
             with (busy or nullcontext)():
-                inference = interpret(text, completer=completer)
+                inference = interpret(text, completer=completer, context=context)
         except InterpretError as exc:
             return SessionResult(error=str(exc), usage=usage, latency_ms=latency)
         for key, value in inference.usage.items():

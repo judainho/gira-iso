@@ -80,3 +80,14 @@ def test_a_model_that_never_returns_valid_json_is_an_error() -> None:
 
     assert result.error is not None
     assert "failed validation" in result.error
+
+
+def test_the_context_reaches_the_model_on_every_round() -> None:
+    completer = Scripted(
+        {"kind": "questions", "questions": ["Which user?"]},
+        {"kind": "spec", "spec": SPEC},
+    )
+
+    converse("a server", completer, answer=lambda q: ["deploy"], context="Base image: ubuntu 22.04")
+
+    assert all("Base image: ubuntu 22.04" in prompt for prompt in completer.prompts)

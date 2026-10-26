@@ -778,3 +778,31 @@ def test_show_json_is_the_manifest(tmp_path: Path) -> None:
     assert payload["name"] == "web"
     assert payload["base"]["sha256"] == "1" * 64
     assert payload["build_dir"].endswith("20260101T000000Z-abcdef123456")
+
+
+def test_menu_tells_the_model_which_base_was_chosen(monkeypatch, tmp_path: Path) -> None:
+    import gira_iso.tui as tui
+
+    _tui_fixture(monkeypatch, tmp_path)
+
+    class Capturing(FakeCompleter):
+        def complete(self, system: str, user: str):
+            self.last_user = user
+            return super().complete(system, user)
+
+    completer = Capturing(_spec_reply())
+    monkeypatch.setattr(tui, "OpenAiCompatible", lambda config: completer)
+
+    runner.invoke(app, [], input=f"k\n4\n1\nun nginx\nweb\nn\nn\n{tmp_path / 'out'}\n0\n")
+
+    assert "Base image: ubuntu 22.04" in completer.last_user
+
+
+def test_the_full_menu_is_drawn_once_then_a_single_line(monkeypatch, tmp_path: Path) -> None:
+    _tui_fixture(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, [], input="k\n3\n3\n0\n")
+
+    assert result.output.count("Listar imágenes existentes") == 3  # 1 box + 2 compact lines
+    assert result.output.count("┏") >= 1
+    assert result.output.count("╭─") <= 3  # banner, menu, nothing repainted per action

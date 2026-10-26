@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from pathlib import Path
 
 import yaml
@@ -61,6 +62,7 @@ NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 MAX_QUESTION_ROUNDS = 3
 
 MAX_KEY_ATTEMPTS = 3
+MAX_WIDTH = 100
 PENDING_STATE = "se descarga al usarla"
 EXAMPLES = (
     ("Servidor web", "Un servidor web con nginx y un usuario deploy con sudo"),
@@ -350,7 +352,7 @@ def _choose_base(console: Console) -> tuple[str, str]:
 
 
 def _interpret(
-    console: Console, config: LlmConfig, request: str
+    console: Console, config: LlmConfig, request: str, base: str
 ) -> tuple[Spec, dict[str, int], int] | None:
     """Return (spec, token usage, latency ms) summed over every round, or None."""
 
@@ -362,6 +364,7 @@ def _interpret(
         request,
         OpenAiCompatible(config),
         answer=answer,
+        context=f"Base image: {base} (already chosen in the menu)",
         busy=lambda: console.status("Interpretando tu petición con el modelo…", spinner="dots"),
     )
     if result.spec is not None:
@@ -444,7 +447,7 @@ def create_image(console: Console, config: LlmConfig) -> None:
         console.print("[yellow]No escribiste nada.[/]")
         return
 
-    interpreted = _interpret(console, config, request)
+    interpreted = _interpret(console, config, request, f"{os_name} {version}")
     if interpreted is None:
         return
     spec, usage, latency = interpreted
@@ -566,7 +569,12 @@ MENU = (
 )
 
 
-def show_menu(console: Console) -> None:
+def show_menu(console: Console, compact: bool = False) -> None:
+    """The full box once; afterwards a single line, so the screen is not repainted each time."""
+    if compact:
+        options = "  ".join(f"[bold {ACCENT}]{key}[/] {label}" for key, label in MENU)
+        console.print(f"[dim]Menú ›[/] {options}")
+        return
     table = Table.grid(padding=(0, 2))
     for key, label in MENU:
         table.add_row(f"[bold {ACCENT}]{key}[/]", label)
@@ -574,7 +582,7 @@ def show_menu(console: Console) -> None:
 
 
 def run(console: Console | None = None) -> None:
-    console = console or Console()
+    console = console or Console(width=min(shutil.get_terminal_size().columns, MAX_WIDTH))
     banner(console)
     config = ask_api_key(console)
     if config is None:
@@ -585,9 +593,11 @@ def run(console: Console | None = None) -> None:
         "3": lambda: list_bases(console),
         "4": lambda: create_image(console, config),
     }
+    first = True
     try:
         while True:
-            show_menu(console)
+            show_menu(console, compact=not first)
+            first = False
             choice = Prompt.ask(
                 "Elige una opción",
                 choices=[key for key, _ in MENU],

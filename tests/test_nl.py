@@ -157,3 +157,18 @@ def test_other_http_errors_are_unverified_and_report_the_status(monkeypatch) -> 
 
     assert outcome.status == "unverified"
     assert "500" in outcome.detail
+
+
+def test_context_is_outside_the_request_markers() -> None:
+    message = user_message("install nginx", context="Base image: ubuntu 24.04")
+
+    assert message.startswith("<context>\nBase image: ubuntu 24.04\n</context>\n<request>")
+    assert message.endswith("</request>")
+
+
+def test_no_context_leaves_the_message_unchanged() -> None:
+    assert user_message("install nginx") == "<request>\ninstall nginx\n</request>"
+
+
+def test_the_system_prompt_explains_the_context_block() -> None:
+    assert "<context>" in SYSTEM_PROMPT
