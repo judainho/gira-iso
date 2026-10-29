@@ -38,8 +38,8 @@ claims are checked against the spec and the policy before you see them. If the p
 spec, the violations go back to the model so it can correct itself, and nothing is built unless
 the final spec passes.
 
-If the request needs a real Ubuntu package that is not on the allowlist (say, `nodejs`), the menu
-offers to add it; see "Extending the allowlist" below.
+If the request needs a real Ubuntu package that is not on the allowlist (say, `ripgrep`), the
+menu offers to add it; see "Extending the allowlist" below.
 
 The last image name and destination are remembered. `Ctrl+C` returns to the menu.
 
@@ -106,6 +106,50 @@ gira-iso allow remove nodejs
 - **Strict mode** ignores and refuses additions: `GIRA_ISO_STRICT=1`, or automatically when you point
   `GIRA_ISO_ALLOWLIST` at your organisation's list (`GIRA_ISO_ALLOW_LOCAL=1` overrides that).
 - With `--non-interactive` nothing is asked; `--json` lists `addable` packages and the command to add them.
+
+## Snaps and official repositories
+
+A spec may install software from two curated sources beyond the Ubuntu archive:
+
+```yaml
+spec_version: "1"
+packages: [nginx, docker-ce]   # docker-ce comes from Docker's own repository
+snaps: [certbot]               # channel and confinement come from the policy, not the spec
+```
+
+What ships today, all reviewed in `policy/allowlist.yaml`:
+
+| Source | Entries | How it is pinned |
+|---|---|---|
+| Snap | `docker`, `certbot` | channel `stable`, `classic` recorded per snap; an optional `revision` pins it exactly |
+| Vendor apt repository | `docker-ce`, `nodesource` | the GPG key is pinned by sha256 and verified before apt is allowed to trust it |
+
+Rules that do not bend:
+
+- **The spec names identifiers, never URLs.** A repository is not a spec field: it is an
+  implementation detail of a package. `docker-ce` pulls in the Docker repository; the model
+  cannot point a build at a source of its choosing.
+- **A repository key is root trust.** It signs every package apt will install from that source
+  in the future, not only the ones in the spec. That is why repositories are curated in the
+  packaged allowlist and are **not** addable with `gira-iso allow add`.
+- **Key hash mismatch fails the build.** The key is downloaded, compared against the pin, and
+  only then installed as `/usr/share/keyrings/<id>.asc` with `Signed-By:`. There is no warning
+  path that continues.
+- **Repository packages never go through cloud-init.** cloud-init runs before the repository
+  exists, so a vendor package is installed by a separate provision step that first verifies the
+  key and runs `apt-get update`.
+- **A snap owns its service.** Do not also name it in `services.enable`: the snap starts and
+  enables itself, and asking systemd for a unit of that name fails the build. The policy rejects
+  the combination with `service.snap_managed`.
+- The manifest records, for every image, each snap's name/channel/confinement/revision and
+  each repository's URL, suite, components and key hash.
+
+To extend either list, edit `policy/allowlist.yaml` and review the diff: it is a security
+change, not a configuration tweak. Snaps go under `snaps:`; a repository under `repositories:`
+plus a `{name, repository}` entry in `packages:`.
+
+Out of scope for now: GitHub release assets. They would need a pinned tag, an asset name and a
+sha256 per entry, and the project has not decided how to review them yet (see `backlog.md`).
 
 ## Documents
 

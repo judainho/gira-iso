@@ -26,6 +26,7 @@ from pydantic import (
 # --- bounded primitives ---------------------------------------------------
 
 PackageName = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9+.-]{0,63}$")]
+SnapName = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9-]{0,39}$")]
 ServiceName = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9@._-]{0,63}$")]
 UserName = Annotated[str, StringConstraints(pattern=r"^[a-z_][a-z0-9_-]{0,31}$")]
 FileMode = Annotated[str, StringConstraints(pattern=r"^0[0-7]{3}$")]
@@ -130,10 +131,13 @@ class Spec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    spec_version: Literal["0"] = "0"
+    spec_version: Literal["0", "1"] = "1"
     base: BaseImage = Field(default_factory=BaseImage)
     disk_size: Annotated[str, StringConstraints(pattern=r"^[0-9]{1,3}G$")] = "8G"
     packages: Annotated[list[PackageName], Field(max_length=40)] = Field(default_factory=list)
+    # Snaps are named by identifier; how each one is installed (channel, confinement, exact
+    # revision) is a policy decision the spec cannot make. See policy/allowlist.yaml.
+    snaps: Annotated[list[SnapName], Field(max_length=10)] = Field(default_factory=list)
     services: Services = Field(default_factory=Services)
     users: Annotated[list[User], Field(max_length=10)] = Field(default_factory=list)
     files: Annotated[list[FileEntry], Field(max_length=20)] = Field(default_factory=list)
@@ -152,9 +156,18 @@ class Spec(BaseModel):
 
     @model_validator(mode="after")
     def _no_duplicates_and_bounded_content(self) -> Spec:
+        if self.spec_version == "0" and self.snaps:
+            raise ValueError(
+                "spec_version '0' does not define snaps; use spec_version '1'"
+            )
+
         duplicates = sorted({item for item in self.packages if self.packages.count(item) > 1})
         if duplicates:
             raise ValueError(f"duplicate packages: {', '.join(duplicates)}")
+
+        repeated_snaps = sorted({item for item in self.snaps if self.snaps.count(item) > 1})
+        if repeated_snaps:
+            raise ValueError(f"duplicate snaps: {', '.join(repeated_snaps)}")
 
         names = [user.name for user in self.users]
         repeated_users = sorted({name for name in names if names.count(name) > 1})

@@ -47,8 +47,11 @@ def load_spec(path: Path) -> Spec:
 
 def summarise(spec: Spec, err: bool = False) -> None:
     typer.echo(f"  base      {spec.base.os} {spec.base.version}, disk {spec.disk_size}", err=err)
+    content = f"{len(spec.packages)} package(s)"
+    if spec.snaps:
+        content += f", {len(spec.snaps)} snap(s)"
     typer.echo(
-        f"  content   {len(spec.packages)} package(s), "
+        f"  content   {content}, "
         f"{len(spec.services.enable)} service(s) enabled, "
         f"{len(spec.users)} user(s), {len(spec.files)} file(s)",
         err=err,

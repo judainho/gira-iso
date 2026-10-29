@@ -31,18 +31,19 @@ fences. It must match exactly one of these shapes:
 
 SPEC is an object with exactly these fields, all optional:
 
-  spec_version: "0"
+  spec_version: "1"
   base:         {"os": "ubuntu", "version": "24.04"}
   disk_size:    string, gigabytes, "6G" to "256G"
   packages:     list of lower-case Debian package names
+  snaps:        list of lower-case snap names from the allowed catalog
   services:     {"enable": [...], "disable": [...]}
   users:        [{"name": "...", "sudo": true|false,
                   "ssh_authorized_keys": ["ssh-ed25519 AAAA..."]}]
   files:        [{"path": "/absolute/path", "content": "text",
                   "mode": "0644", "owner": "root:root"}]
 
-UNDERSTOOD  {"requested": "docker", "resolved": "docker.io", "kind": "package"|"service"}
-UNSUPPORTED {"item": "opencode", "kind": "program"|"package"|"service"|"other",
+UNDERSTOOD  {"requested": "docker", "resolved": "docker.io", "kind": "package"|"service"|"snap"}
+UNSUPPORTED {"item": "opencode", "kind": "program"|"package"|"service"|"snap"|"other",
              "reason": "short, in the user's language", "alternatives": ["catalog name", ...]}
 
 Classify every item the user asks for before deciding anything:
@@ -50,14 +51,16 @@ Classify every item the user asks for before deciding anything:
 - package: a Debian package that is in the allowed catalog below. Use its exact catalog
   name. People say "docker" or "web server"; map such words to the catalog name and record
   the mapping in "understood" (requested = the user's words, resolved = the name you put
-  in the spec).
+  in the spec). A package that comes from a vendor repository is still a package: do not
+  mention the repository, it is not part of the spec.
+- snap: a snap that is in the allowed snap catalog. Use its exact catalog name.
 - service: a unit from the allowed services list.
-- program: software that is not a package of this catalog. That includes anything installed
-  by a script, by npm, pip or cargo, by snap, from a GitHub release, or from a third-party
-  apt repository (for example opencode, nvm, kubectl, the official Docker CE). A spec
-  cannot express a program.
-- A real Debian package that is simply not in the catalog is unsupported too: the catalog
-  is the whole list of what may be installed.
+- program: software that is not a package or a snap of these catalogs. That includes
+  anything installed by a script, by npm, pip or cargo, from a GitHub release, or from a
+  third-party apt repository that is not in the catalog (for example opencode, nvm,
+  kubectl). A spec cannot express a program.
+- A real Debian package or snap that is simply not in the catalog is unsupported too: the
+  catalog is the whole list of what may be installed.
 
 Rules:
 
@@ -110,6 +113,7 @@ def catalog_section(allowlist: Allowlist) -> str:
     )
     described_packages = data.get("packages", {})
     described_services = data.get("services", {})
+    described_snaps = data.get("snaps", {})
 
     lines = ["Allowed catalog. This is the complete list of what may appear in a spec.", ""]
     lines.append("Packages:")
@@ -117,6 +121,12 @@ def catalog_section(allowlist: Allowlist) -> str:
     lines += _local_lines(allowlist)
     lines += ["", "Services:"]
     lines += [_entry(name, described_services.get(name)) for name in sorted(allowlist.services)]
+    if allowlist.snaps:
+        lines += ["", "Snaps:"]
+        lines += [
+            _entry(name, described_snaps.get(name) or {"description": f"channel {policy.channel}"})
+            for name, policy in sorted(allowlist.snaps.items())
+        ]
     external = data.get("programs_outside_the_catalog", [])
     if external:
         lines += ["", "Programs that are NOT in the catalog (examples):"]

@@ -63,9 +63,13 @@ verificación de checksum y formatos. Nunca se ejecutó contra una nube real.
 - **Ampliar servicios habilitables** como las adiciones de paquetes, si hace falta (hoy son 11, curados).
 - **Reintentos y puntos de reanudación del build.** Hoy un build interrumpido se descarta entero.
 - **Comando para limpiar la caché de bases oficiales** (`~/.cache/gira-iso/images`); crece sin límite.
-- **Recetas aprobadas para software fuera de apt** (opencode, nvm, Docker CE oficial): el sistema lo
-  reconoce y lo explica, pero no puede instalarlo. Exige decidir qué binarios fija la organización por
-  URL y sha256.
+- **Recetas aprobadas para software fuera de apt.** Los snaps y los repositorios oficiales ya
+  están soportados (ver README). Queda **GitHub**: un asset de release es un binario opaco
+  corriendo como root, sin `dpkg` que lo respalde. Exigiría fijar tag, nombre de asset y sha256
+  por entrada, y prohibir `latest` (es un puntero mutable). Falta decidir cómo se revisa.
+- **Fijar la revisión de los snaps empaquetados.** Hoy se fija el canal (`stable`), que es un
+  puntero móvil. `revision:` ya está soportado por la política y por el manifiesto; falta elegir
+  una revisión concreta para `docker` y `certbot` y revisarla como cualquier otro pin.
 
 ## 3. Deuda del arnés de evaluación
 

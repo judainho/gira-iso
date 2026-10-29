@@ -102,9 +102,12 @@ def list_(
     if json_output:
         typer.echo(json.dumps([asdict(entry) for entry in entries], indent=2))
         return
-    packaged = len(load_allowlist().packages)
+    active = load_allowlist()
+    packaged = len(active.packages)
     state = "inactive (strict mode)" if strict_mode() else "active"
     typer.echo(f"  packaged  {packaged} package(s)")
+    typer.echo(f"  snaps     {', '.join(sorted(active.snaps)) or 'none'}")
+    typer.echo(f"  repos     {', '.join(sorted(active.repositories)) or 'none'}")
     typer.echo(f"  local     {len(entries)} package(s), {state}")
     for entry in entries:
         typer.echo(

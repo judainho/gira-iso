@@ -28,7 +28,7 @@ from pathlib import Path
 
 from gira_iso import archive
 from gira_iso.additions import Addition, add_addition, strict_mode
-from gira_iso.archive import ArchiveUnavailable, UnknownRelease
+from gira_iso.archive import ArchiveUnavailable
 from gira_iso.bases import builds_dir
 from gira_iso.builder.build import BuildRejected, BuildResult, build_image
 from gira_iso.builder.catalog import load_manifest
@@ -39,6 +39,7 @@ from gira_iso.nl.session import SessionResult, converse, policy_checker
 from gira_iso.nl.suggest import suggest_packages
 from gira_iso.policy.evaluate import Allowlist, Verdict, load_allowlist
 from gira_iso.proposals import Proposal
+from gira_iso.releases import UnknownRelease
 from gira_iso.spec.models import BaseImage, Spec
 from gira_iso.verify.verify import VerifyResult, verify_build
 from gira_iso.workflow.additions import Offer, gather, worth_asking

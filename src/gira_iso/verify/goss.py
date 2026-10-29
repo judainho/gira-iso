@@ -74,6 +74,13 @@ def _command_checks(spec: Spec) -> dict[str, Any]:
                 "exit-status": 0,
                 "stdout": [SUDO_GROUP],
             }
+    for snap in spec.snaps:
+        # goss has no snap resource; `snap list` is the only honest evidence the snap is there.
+        commands[f"snap-{snap}"] = {
+            "exec": f"snap list {snap}",
+            "exit-status": 0,
+            "stdout": [snap],
+        }
     return commands
 
 

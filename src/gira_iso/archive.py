@@ -18,7 +18,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from gira_iso.errors import EXIT_ENVIRONMENT, EXIT_INVALID, GiraError
+from gira_iso.errors import EXIT_ENVIRONMENT, GiraError
+from gira_iso.releases import codename_for
 
 LAUNCHPAD = "https://api.launchpad.net/devel/ubuntu"
 # Launchpad answered in 0.6 s to 7.8 s for equivalent queries on the same day, so the limit is
@@ -27,19 +28,12 @@ TIMEOUT = 30  # seconds per attempt
 ATTEMPTS = 2
 # What apt installs by default. "Proposed" is the staging area and "Backports" is opt-in.
 ACCEPTED_POCKETS = frozenset({"Release", "Updates", "Security"})
-# Release names for the bases the tool offers. A base the user uploaded has no entry here, so
-# nothing can be checked against it and nothing can be added for it.
-CODENAMES = {"22.04": "jammy", "24.04": "noble"}
 
 Fetch = Callable[[str], dict[str, Any]]
 
 
 class ArchiveUnavailable(GiraError):
     exit_code = EXIT_ENVIRONMENT
-
-
-class UnknownRelease(GiraError):
-    exit_code = EXIT_INVALID
 
 
 @dataclass(frozen=True)
@@ -69,16 +63,6 @@ def fetch_json(url: str) -> dict[str, Any]:
         f"could not ask the Ubuntu archive (Launchpad): {last}. "
         "This is not an answer about the package; try again."
     ) from last
-
-
-def codename_for(base_version: str) -> str:
-    try:
-        return CODENAMES[base_version]
-    except KeyError:
-        raise UnknownRelease(
-            f"ubuntu {base_version} has no known release name, so packages cannot be checked "
-            f"against its archive (known: {', '.join(sorted(CODENAMES))})"
-        ) from None
 
 
 def query_url(package: str, codename: str) -> str:

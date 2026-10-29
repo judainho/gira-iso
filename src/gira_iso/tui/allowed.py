@@ -16,9 +16,10 @@ from gira_iso.additions import (
     remove_addition,
     strict_mode,
 )
-from gira_iso.archive import ArchiveUnavailable, UnknownRelease
+from gira_iso.archive import ArchiveUnavailable
 from gira_iso.policy.evaluate import load_allowlist
 from gira_iso.proposals import Refusal
+from gira_iso.releases import UnknownRelease
 from gira_iso.tui.bases import choose_base
 from gira_iso.tui.common import ACCENT, section
 from gira_iso.tui.views import show_proposals
@@ -35,6 +36,14 @@ def allowed_packages(console: Console) -> None:
         f"[dim]Oficiales: {official} paquetes revisados e incluidos con la herramienta. "
         f"Agregados en este equipo: {len(entries)}.[/]"
     )
+    active = load_allowlist()
+    curated = []
+    if active.snaps:
+        curated.append(f"snaps: {', '.join(sorted(active.snaps))}")
+    if active.repositories:
+        curated.append(f"repos: {', '.join(sorted(active.repositories))}")
+    if curated:
+        console.print(f"[dim]También revisados · {' · '.join(curated)}[/]")
     if strict:
         console.print(
             "[yellow]Modo estricto:[/] las adiciones locales no se aplican ni se pueden cambiar "

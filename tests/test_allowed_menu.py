@@ -13,7 +13,7 @@ from gira_iso.nl.client import CredentialCheck
 runner = CliRunner()
 
 ARCHIVE = {
-    "nodejs": ArchivePackage("nodejs", "18.19.1", "universe", "web", "Release"),
+    "ripgrep": ArchivePackage("ripgrep", "18.19.1", "universe", "web", "Release"),
     "nonfree": ArchivePackage("nonfree", "1.0", "multiverse", "misc", "Release"),
 }
 
@@ -27,7 +27,7 @@ def _menu(monkeypatch):
     )
 
 
-def stored(package: str = "nodejs", base: str = "24.04") -> Addition:
+def stored(package: str = "ripgrep", base: str = "24.04") -> Addition:
     return Addition(
         package=package,
         base_version=base,
@@ -49,7 +49,7 @@ def test_with_nothing_added_it_says_so() -> None:
     result = menu("")
 
     flat = " ".join(result.output.split())
-    assert "Oficiales: 42 paquetes" in flat
+    assert "Oficiales: 48 paquetes" in flat
     assert "Todavía no agregaste ningún paquete" in flat
 
 
@@ -60,21 +60,21 @@ def test_it_lists_what_was_added_here() -> None:
 
     flat = " ".join(result.output.split())  # the 80-column console wraps long lines
     assert "Agregados en este equipo: 1" in flat
-    assert "nodejs" in flat and "universe" in flat
+    assert "ripgrep" in flat and "universe" in flat
     assert "un número para quitarlo" in flat
 
 
 def test_a_package_can_be_added_from_the_menu() -> None:
-    result = menu("agregar", "nodejs", "", "y")  # name, default base, approve
+    result = menu("agregar", "ripgrep", "", "y")  # name, default base, approve
 
     assert result.exit_code == 0, result.output
     assert "Paquetes reales de Ubuntu" in result.output
     assert "Agregado:" in result.output
-    assert [(a.package, a.base_version) for a in list_additions()] == [("nodejs", "24.04")]
+    assert [(a.package, a.base_version) for a in list_additions()] == [("ripgrep", "24.04")]
 
 
 def test_declining_adds_nothing() -> None:
-    menu("agregar", "nodejs", "", "n")
+    menu("agregar", "ripgrep", "", "n")
 
     assert list_additions() == []
 
@@ -99,7 +99,7 @@ def test_an_unreachable_archive_is_reported_without_crashing(monkeypatch) -> Non
 
     monkeypatch.setattr("gira_iso.archive.lookup", down)
 
-    result = menu("agregar", "nodejs", "")
+    result = menu("agregar", "ripgrep", "")
 
     assert result.exit_code == 0 and "could not ask the Ubuntu archive" in result.output
     assert list_additions() == []
@@ -142,6 +142,6 @@ def test_in_strict_mode_it_only_shows(monkeypatch) -> None:
     result = menu()
 
     assert "Modo estricto" in result.output
-    assert "nodejs" in result.output  # visible, so a person can see what is being ignored
+    assert "ripgrep" in result.output  # visible, so a person can see what is being ignored
     assert "«agregar»" not in result.output  # nothing can be changed
     assert len(list_additions(include_inactive=True)) == 1

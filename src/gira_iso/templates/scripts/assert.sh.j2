@@ -16,4 +16,9 @@ systemctl is-enabled '{{ svc }}' >/dev/null 2>&1 \
   || { echo "NOT ENABLED service: {{ svc }}" >&2; exit 1; }
 {% endfor %}
 
-echo "assertions passed: {{ packages | length }} package(s), {{ services | length }} service(s)"
+{% for snap in snaps %}
+snap list '{{ snap }}' 2>/dev/null | grep -q '^{{ snap }} ' \
+  || { echo "MISSING snap: {{ snap }}" >&2; exit 1; }
+{% endfor %}
+
+echo "assertions passed: {{ packages | length }} package(s), {{ services | length }} service(s), {{ snaps | length }} snap(s)"

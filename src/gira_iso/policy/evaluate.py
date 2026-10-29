@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import os
+import re
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
@@ -23,6 +24,30 @@ from gira_iso.bases import merge_into
 from gira_iso.spec.models import FileEntry, Spec
 
 DEFAULT_ALLOWLIST = "allowlist.yaml"
+SNAP_CHANNELS = frozenset({"stable", "candidate", "beta", "edge"})
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True)
+class SnapPolicy:
+    """How one allowlisted snap is installed. The spec only names it."""
+
+    name: str
+    channel: str = "stable"
+    classic: bool = False
+    revision: int | None = None
+
+
+@dataclass(frozen=True)
+class RepositoryPolicy:
+    """A vendor apt repository, with its key pinned by hash."""
+
+    id: str
+    url: str
+    suite: str
+    components: tuple[str, ...]
+    key_url: str
+    key_sha256: str
 
 
 @dataclass(frozen=True)
@@ -53,6 +78,11 @@ class Allowlist:
     mandatory_packages: frozenset[str]
     file_prefixes: tuple[str, ...]
     forbidden_prefixes: tuple[str, ...]
+    # Snaps the spec may name, and how each one is installed.
+    snaps: dict[str, SnapPolicy] = field(default_factory=dict)
+    # Vendor apt repositories, and which allowlisted package comes from which one.
+    repositories: dict[str, RepositoryPolicy] = field(default_factory=dict)
+    package_repository: dict[str, str] = field(default_factory=dict)
     # Packages a person added on this machine, by Ubuntu release (see additions.py). Empty in
     # strict mode and whenever a specific allowlist file is loaded.
     local_packages: dict[str, frozenset[str]] = field(default_factory=dict)
@@ -61,19 +91,28 @@ class Allowlist:
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> Allowlist:
+        packages, package_repository = _package_entries(data["packages"])
+        repositories = _repository_entries(data.get("repositories") or {}, package_repository)
         return cls(
             base_images=data["base_images"],
-            packages=frozenset(data["packages"]),
+            packages=packages,
             services=frozenset(data["services"]),
             required_services=frozenset(data.get("required_services", [])),
             mandatory_packages=frozenset(data.get("mandatory_packages", [])),
             file_prefixes=tuple(data.get("file_prefixes", [])),
             forbidden_prefixes=tuple(data.get("forbidden_prefixes", [])),
+            snaps=_snap_entries(data.get("snaps") or {}),
+            repositories=repositories,
+            package_repository=package_repository,
             never_add=frozenset(data.get("never_add", [])),
         )
 
     def base_image(self, os_name: str, version: str) -> dict[str, str] | None:
         return self.base_images.get(os_name, {}).get(version)
+
+    def repository_of(self, package: str) -> str | None:
+        """The repository a package comes from, or None when Ubuntu's archive provides it."""
+        return self.package_repository.get(package)
 
     def allows_package(self, name: str, base_version: str) -> bool:
         """Packaged packages always; local additions only for the release they were checked on."""
@@ -83,6 +122,77 @@ class Allowlist:
             name in self.local_packages.get(base_version, frozenset())
             and name not in self.never_add
         )
+
+
+def _package_entries(raw: Any) -> tuple[frozenset[str], dict[str, str]]:
+    """Packages may be a bare name or `{name, repository}`. Both forms coexist."""
+    names: set[str] = set()
+    owned: dict[str, str] = {}
+    for entry in raw:
+        if isinstance(entry, str):
+            names.add(entry)
+            continue
+        if not isinstance(entry, dict) or not entry.get("name") or not entry.get("repository"):
+            raise ValueError(f"invalid package entry: {entry!r}")
+        name, repository = str(entry["name"]), str(entry["repository"])
+        if name in owned and owned[name] != repository:
+            raise ValueError(f"package {name} is listed under two repositories")
+        names.add(name)
+        owned[name] = repository
+    return frozenset(names), owned
+
+
+def _snap_entries(raw: Any) -> dict[str, SnapPolicy]:
+    snaps: dict[str, SnapPolicy] = {}
+    for name, settings in raw.items():
+        settings = settings or {}
+        channel = str(settings.get("channel", "stable"))
+        if channel not in SNAP_CHANNELS:
+            known = ", ".join(sorted(SNAP_CHANNELS))
+            raise ValueError(f"snap {name}: unknown channel {channel!r} (known: {known})")
+        revision = settings.get("revision")
+        if revision is not None and (not isinstance(revision, int) or revision < 1):
+            raise ValueError(f"snap {name}: revision must be a positive integer")
+        snaps[str(name)] = SnapPolicy(
+            name=str(name),
+            channel=channel,
+            classic=bool(settings.get("classic", False)),
+            revision=revision,
+        )
+    return snaps
+
+
+def _repository_entries(
+    raw: Any, package_repository: dict[str, str]
+) -> dict[str, RepositoryPolicy]:
+    repositories: dict[str, RepositoryPolicy] = {}
+    for identifier, settings in raw.items():
+        if not isinstance(settings, dict):
+            raise ValueError(f"repository {identifier}: expected a mapping")
+        key_sha256 = str(settings.get("key_sha256", ""))
+        if not SHA256.match(key_sha256):
+            raise ValueError(
+                f"repository {identifier}: key_sha256 must be 64 lowercase hex characters"
+            )
+        for field_name in ("url", "key_url"):
+            if not str(settings.get(field_name, "")).startswith("https://"):
+                raise ValueError(f"repository {identifier}: {field_name} must be https")
+        components = tuple(settings.get("components") or ())
+        if not components:
+            raise ValueError(f"repository {identifier}: at least one component is required")
+        repositories[str(identifier)] = RepositoryPolicy(
+            id=str(identifier),
+            url=str(settings["url"]),
+            suite=str(settings["suite"]),
+            components=components,
+            key_url=str(settings["key_url"]),
+            key_sha256=key_sha256,
+        )
+    unknown = {name: repo for name, repo in package_repository.items() if repo not in repositories}
+    if unknown:
+        name, repo = sorted(unknown.items())[0]
+        raise ValueError(f"package {name} points at unknown repository {repo}")
+    return repositories
 
 
 ENV_VAR = "GIRA_ISO_ALLOWLIST"
@@ -223,8 +333,29 @@ def evaluate(spec: Spec, allowlist: Allowlist | None = None) -> Verdict:
                 )
             )
 
+    for index, snap in enumerate(spec.snaps):
+        if snap not in allowlist.snaps:
+            violations.append(
+                Violation(
+                    code="snap.not_allowed",
+                    message=f"{snap} is not in the snap allowlist",
+                    location=f"snaps[{index}]",
+                )
+            )
+
     for index, service in enumerate(spec.services.enable):
-        if service not in allowlist.services:
+        if service in spec.snaps:
+            # A snap starts and enables its own service. Asking systemd for a unit of the same
+            # name would fail the build at the last step, with a message about a missing unit.
+            violations.append(
+                Violation(
+                    code="service.snap_managed",
+                    message=f"{service} is provided by the {service} snap and starts itself; "
+                    "remove it from services.enable",
+                    location=f"services.enable[{index}]",
+                )
+            )
+        elif service not in allowlist.services:
             violations.append(
                 Violation(
                     code="service.not_allowed",

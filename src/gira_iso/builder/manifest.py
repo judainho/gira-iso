@@ -49,6 +49,29 @@ class AddedPackage(BaseModel):
     added_at: str
 
 
+class SnapRef(BaseModel):
+    """One snap that was installed, and the policy settings that decided how."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    channel: str
+    classic: bool
+    revision: int | None = None
+
+
+class RepositoryRef(BaseModel):
+    """One vendor apt repository whose packages are in this image."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    url: str
+    suite: str
+    components: list[str]
+    key_sha256: str
+
+
 class PolicyRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -90,6 +113,9 @@ class Manifest(BaseModel):
     builder: BuilderInfo
     packages: list[str]
     services: list[str]
+    # Optional so manifests written before snaps and vendor repositories still validate.
+    snaps: list[SnapRef] = Field(default_factory=list)
+    repositories: list[RepositoryRef] = Field(default_factory=list)
     artifact: Artifact
 
     def write(self, directory: Path) -> Path:
@@ -110,6 +136,8 @@ def build_manifest(
     services: list[str],
     artifact_path: Path,
     virtual_size_bytes: int,
+    snaps: list[SnapRef] | None = None,
+    repositories: list[RepositoryRef] | None = None,
 ) -> Manifest:
     return Manifest(
         name=name,
@@ -120,6 +148,8 @@ def build_manifest(
         builder=builder,
         packages=packages,
         services=services,
+        snaps=snaps or [],
+        repositories=repositories or [],
         artifact=Artifact(
             file=artifact_path.name,
             sha256=file_sha256(artifact_path),

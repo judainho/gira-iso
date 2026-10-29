@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import subprocess
 from pathlib import Path
@@ -30,7 +31,9 @@ def valid_spec(**extra) -> Spec:
 
 
 def test_the_build_renders_a_finalize_script_and_uses_it_to_shut_down(tmp_path: Path) -> None:
-    rendered = render(valid_spec(), tmp_path, frozenset({"openssh-server"}), "ssh-ed25519 AAAA k")
+    allowed = frozenset({"openssh-server"})
+    allowlist = dataclasses.replace(load_allowlist(), mandatory_packages=allowed)
+    rendered = render(valid_spec(), tmp_path, allowlist, "ssh-ed25519 AAAA k")
 
     template = (rendered.packer_dir / "image.pkr.hcl").read_text(encoding="utf-8")
     assert (rendered.provision_dir / "finalize.sh").is_file()

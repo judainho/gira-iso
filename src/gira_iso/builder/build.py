@@ -25,6 +25,8 @@ from gira_iso.builder.manifest import (
     BaseRef,
     BuilderInfo,
     PolicyRef,
+    RepositoryRef,
+    SnapRef,
     build_manifest,
 )
 from gira_iso.builder.render import (
@@ -34,6 +36,7 @@ from gira_iso.builder.render import (
     effective_packages,
     effective_services,
     render,
+    required_repositories,
 )
 from gira_iso.errors import EXIT_ENVIRONMENT, EXIT_REJECTED, GiraError
 from gira_iso.policy.evaluate import (
@@ -125,6 +128,31 @@ def _policy_ref(spec: Spec) -> PolicyRef:
     return PolicyRef(source=source, sha256=digest, local_additions=used)
 
 
+def _snap_refs(spec: Spec, allowlist: Allowlist) -> list[SnapRef]:
+    return [
+        SnapRef(
+            name=policy.name,
+            channel=policy.channel,
+            classic=policy.classic,
+            revision=policy.revision,
+        )
+        for policy in (allowlist.snaps[name] for name in spec.snaps)
+    ]
+
+
+def _repository_refs(spec: Spec, allowlist: Allowlist) -> list[RepositoryRef]:
+    return [
+        RepositoryRef(
+            id=repo.id,
+            url=repo.url,
+            suite=repo.suite,
+            components=list(repo.components),
+            key_sha256=repo.key_sha256,
+        )
+        for repo in required_repositories(spec, allowlist)
+    ]
+
+
 def _virtual_size(path: Path) -> int:
     info = subprocess.run(
         ["qemu-img", "info", "--output=json", str(path)],
@@ -177,7 +205,7 @@ def build_image(
             public_key = _generate_key(key_path)
 
             step("Generando la plantilla de Packer y el seed de cloud-init")
-            rendered = render(spec, build_dir, allowlist.mandatory_packages, public_key)
+            rendered = render(spec, build_dir, allowlist, public_key)
 
             template_dir = rendered.packer_dir
             step("Inicializando Packer (plugin qemu)")
@@ -217,8 +245,10 @@ def build_image(
                     plugin_version=PLUGIN_VERSION,
                     template_sha256=rendered.template_sha256,
                 ),
-                packages=effective_packages(spec, allowlist.mandatory_packages),
+                packages=effective_packages(spec, allowlist),
                 services=effective_services(spec),
+                snaps=_snap_refs(spec, allowlist),
+                repositories=_repository_refs(spec, allowlist),
                 artifact_path=image,
                 virtual_size_bytes=_virtual_size(image),
             )

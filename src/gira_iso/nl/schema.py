@@ -22,7 +22,7 @@ class Understood(BaseModel):
 
     requested: Short
     resolved: Short
-    kind: Literal["package", "service"]
+    kind: Literal["package", "service", "snap"]
 
 
 class Unsupported(BaseModel):
@@ -31,7 +31,7 @@ class Unsupported(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item: Short
-    kind: Literal["program", "package", "service", "other"] = "other"
+    kind: Literal["program", "package", "service", "snap", "other"] = "other"
     reason: Short
     alternatives: Annotated[list[Short], Field(max_length=5)] = Field(default_factory=list)
 

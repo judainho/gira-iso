@@ -20,14 +20,14 @@ from gira_iso.builder.render import (
 from gira_iso.policy.evaluate import load_allowlist
 from gira_iso.spec.models import Spec
 
-MANDATORY = load_allowlist().mandatory_packages
+ALLOWLIST = load_allowlist()
 KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f"
 
 
 def test_rendering_the_same_spec_twice_is_byte_identical(tmp_path: Path) -> None:
     spec = build_spec(packages=["nginx", "curl"], services={"enable": ["nginx"]})
-    first = render(spec, tmp_path / "a", MANDATORY, KEY)
-    second = render(spec, tmp_path / "b", MANDATORY, KEY)
+    first = render(spec, tmp_path / "a", ALLOWLIST, KEY)
+    second = render(spec, tmp_path / "b", ALLOWLIST, KEY)
 
     for relative in ("packer/image.pkr.hcl", "provision/assert.sh", "provision/cleanup.sh"):
         assert (first.packer_dir.parent / relative).read_bytes() == (
@@ -38,7 +38,7 @@ def test_rendering_the_same_spec_twice_is_byte_identical(tmp_path: Path) -> None
 
 def test_rendered_hcl_keeps_packer_templating_intact(tmp_path: Path) -> None:
     """Jinja and Packer both use {{ }}; the raw blocks must survive rendering."""
-    render(build_spec(), tmp_path, MANDATORY, KEY)
+    render(build_spec(), tmp_path, ALLOWLIST, KEY)
     text = (tmp_path / "packer" / "image.pkr.hcl").read_text(encoding="utf-8")
     assert "{{ .Vars }}" in text
     assert "{{ .Path }}" in text
@@ -53,7 +53,7 @@ def test_disk_size_is_converted_to_megabytes(tmp_path: Path) -> None:
 
 def test_mandatory_packages_are_always_installed() -> None:
     spec = build_spec(packages=["nginx"])
-    packages = effective_packages(spec, MANDATORY)
+    packages = effective_packages(spec, ALLOWLIST)
     assert "nginx" in packages
     assert "qemu-guest-agent" in packages
     assert packages == sorted(packages)
@@ -68,7 +68,7 @@ def test_file_content_survives_the_seed_exactly() -> None:
     """Trailing spaces and blank lines inside a config file must not be reflowed."""
     content = "server {\n    listen 8080;  \n\n    # trailing spaces above\n}\n"
     spec = build_spec(files=[{"path": "/etc/nginx/conf.d/x.conf", "content": content}])
-    user_data, _ = cloud_init(spec, KEY, MANDATORY)
+    user_data, _ = cloud_init(spec, KEY, ALLOWLIST)
     parsed = yaml.safe_load(user_data.split("\n", 1)[1])
     assert parsed["write_files"][0]["content"] == content
     assert parsed["write_files"][0]["permissions"] == "0644"
@@ -81,7 +81,7 @@ def test_seed_contains_build_user_and_spec_users() -> None:
             {"name": "readonly", "ssh_authorized_keys": [KEY]},
         ]
     )
-    user_data, _ = cloud_init(spec, KEY, MANDATORY)
+    user_data, _ = cloud_init(spec, KEY, ALLOWLIST)
     parsed = yaml.safe_load(user_data.split("\n", 1)[1])
     names = [user["name"] for user in parsed["users"]]
     assert names == ["packer", "deploy", "readonly"]
@@ -93,19 +93,19 @@ def test_seed_contains_build_user_and_spec_users() -> None:
 
 def test_seed_enables_declared_services() -> None:
     spec = build_spec(services={"enable": ["nginx"]})
-    user_data, _ = cloud_init(spec, KEY, MANDATORY)
+    user_data, _ = cloud_init(spec, KEY, ALLOWLIST)
     parsed = yaml.safe_load(user_data.split("\n", 1)[1])
     assert "systemctl enable nginx" in parsed["runcmd"]
 
 
 def test_seed_never_contains_a_password() -> None:
-    user_data, _ = cloud_init(build_spec(), KEY, MANDATORY)
+    user_data, _ = cloud_init(build_spec(), KEY, ALLOWLIST)
     assert "password:" not in user_data
     assert "ssh_pwauth: false" in user_data
 
 
 def test_assertions_script_names_every_package(tmp_path: Path) -> None:
-    render(build_spec(packages=["nginx", "curl"]), tmp_path, MANDATORY, KEY)
+    render(build_spec(packages=["nginx", "curl"]), tmp_path, ALLOWLIST, KEY)
     script = (tmp_path / "provision" / "assert.sh").read_text(encoding="utf-8")
     for package in ("nginx", "curl", "qemu-guest-agent", "cloud-init"):
         assert f"dpkg -l '{package}'" in script
