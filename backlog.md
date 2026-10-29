@@ -44,6 +44,28 @@ verificación de checksum y formatos. Nunca se ejecutó contra una nube real.
 
 ## 2. Endurecimiento pendiente
 
+- **Validar como datos estrictos los campos de `repositories:`** (`id`, `suite`, `components`, `url`,
+  `key_url`). Hoy solo se exige `https://`, 64 hex y componentes no vacíos, y esos valores se
+  interpolan en un script que corre como root: un `suite` con salto de línea añade líneas al
+  `.sources`, y un `id` con `..` escribe fuera de `/usr/share/keyrings`. No lo alcanza el spec ni el
+  modelo (solo la allowlist revisada), pero es una frontera que conviene cerrar. (revisión R1)
+- **Reintentos en el provisioner de repositorios:** el fallback `wget` no fija `--tries` ni
+  `--timeout`, y `apt-get` no usa `Acquire::Retries`. Un 5xx transitorio de Docker o NodeSource
+  tumba un build que ya descargó y arrancó la imagen base. (revisión R4-2)
+- **Pruebas de comportamiento que hoy son solo de texto:** ejecutar `repositories.sh` con un digest
+  incorrecto y comprobar que falla; inspeccionar el `runcmd` del seed para los snaps; y correr un
+  build (con dobles) que verifique el manifest con `snaps` y `repositories`. (revisión R3-2/3/4)
+- **Mensaje de `codename_for`** (`releases.py`): sigue hablando solo del archivo de Launchpad, pero
+  ahora también resuelve el `suite` de un repositorio. (revisión R2)
+- **Helper `node` en `tests/test_additions.py`:** construye una adición `ripgrep`; el nombre y los
+  datos `nodejs` del fixture confunden. (revisión R2)
+- **Composición de paquetes en `render.py`:** `effective_packages`, `archive_packages`,
+  `repository_packages` y la unión inline en `cloud_init` repiten la misma idea; falta un único
+  punto que diga qué recibe cloud-init. (revisión R2)
+- **Catálogo de snaps:** `catalog_section` inventa una descripción cuando falta la entrada; debería
+  fallar o avisar del desfase entre `allowlist.yaml` y `catalog.yaml`. Faltan aserciones sobre la
+  sección Snaps del prompt y sobre la salida de `allow list`/`policy`. (revisión R2/R3)
+
 - **Verificación por `qemu-guest-agent` en vez de SSH.** El plan lo deja como alternativa opcional.
   Hoy `ssh` es obligatorio (D1) y una imagen no puede deshabilitarlo. El canal virtio-serial ya se
   usa en la VM de verificación para que el agente arranque; falta usarlo como transporte.

@@ -67,3 +67,8 @@ Test runner: `uv run pytest` (network tests deselected) and `uv run ruff check .
 - **L8** — Evidence: rendered `repositories.sh`, `assert.sh`, `user-data` and the Packer template
   inspected by hand for a spec with `docker-ce`, `nodejs`, and snaps `docker` + `certbot`; all
   four scripts pass `bash -n`.
+- **L9** — Review (four lenses, high risk): the refuter corroborated one CRITICAL finding, `R4-1`
+  (the repository provisioner ran apt before cloud-init finished; dpkg lock contention). Fixed in
+  `cb0dcb8` by waiting for cloud-init in `repositories.sh`, pinned with a test. Targeted validator
+  then approved; authority acknowledged and burned. Fourteen advisory findings recorded in
+  `backlog.md` as separate later work.
