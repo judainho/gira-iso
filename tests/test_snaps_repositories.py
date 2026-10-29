@@ -198,6 +198,13 @@ def test_no_repository_is_resolved_when_no_package_needs_one() -> None:
     assert required_repositories(build_spec(packages=["nginx"]), load_allowlist()) == []
 
 
+def test_repository_script_waits_for_cloud_init_before_using_apt(tmp_path: Path) -> None:
+    """cloud-init installs the archive packages and starts the snaps; apt must not run alongside."""
+    render(build_spec(packages=["docker-ce"]), tmp_path, load_allowlist(), KEY)
+    script = (tmp_path / "provision" / "repositories.sh").read_text(encoding="utf-8")
+    assert script.index("cloud-init status --wait") < script.index("apt-get update")
+
+
 def test_repository_script_verifies_the_key_before_using_it(tmp_path: Path) -> None:
     spec = build_spec(packages=["docker-ce"])
     render(spec, tmp_path, load_allowlist(), KEY)

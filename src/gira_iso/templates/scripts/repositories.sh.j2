@@ -7,6 +7,12 @@
 # "warns and continues".
 set -euo pipefail
 
+# cloud-init is still installing the archive packages and the snaps when this script starts.
+# Two apt clients at once contend on /var/lib/dpkg/lock-frontend and one aborts, so wait for
+# cloud-init to finish before touching apt. --wait blocks regardless of the exit status; a
+# failed cloud-init is caught later by the assertion script, not hidden here.
+cloud-init status --wait || true
+
 fetch() {
   if command -v curl >/dev/null 2>&1; then
     curl -fsSL --retry 3 --max-time 60 -o "$2" "$1"
