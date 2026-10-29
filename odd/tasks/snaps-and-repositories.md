@@ -76,3 +76,9 @@ Test runner: `uv run pytest` (network tests deselected) and `uv run ruff check .
   repository/snap fields (the `\Z` anchors matter: `$` accepts a trailing newline), retry budgets,
   the key check executed with a wrong digest, seed/manifest/CLI/prompt assertions, and three
   readability clean-ups. `R1-snap-channel-not-pinned` stays open: it needs real revision numbers.
+- **L11** — Independent verifier: S1-S8 and S10 met by execution; S9 only partly, because neither
+  `check` nor the review panel named the repository behind a package. Fixed in `e04b877`, and the
+  recheck confirmed it. The recheck then found a regression of my own: describing repositories ran
+  before the verdict and aborted `check` on an unsupported base; fixed in `3fa1e21`. Whole suite:
+  583 passed, one pre-existing failure (`test_cli.py::test_the_full_menu_is_drawn_once_then_a_single_line`,
+  confirmed identical on `7dd37d2`); ruff clean.
