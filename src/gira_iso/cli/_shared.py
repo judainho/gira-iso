@@ -11,12 +11,13 @@ import typer
 import yaml
 from pydantic import ValidationError
 
+from gira_iso.builder.render import required_repositories
 from gira_iso.errors import (
     EXIT_INTERRUPTED,
     EXIT_INVALID,
     GiraError,
 )
-from gira_iso.policy.evaluate import Verdict
+from gira_iso.policy.evaluate import Allowlist, Verdict, load_allowlist
 from gira_iso.spec.models import Spec
 from gira_iso.verify.verify import VerifyResult
 
@@ -45,7 +46,9 @@ def load_spec(path: Path) -> Spec:
         raise typer.Exit(EXIT_INVALID) from None
 
 
-def summarise(spec: Spec, err: bool = False) -> None:
+def summarise(
+    spec: Spec, *, allowlist: Allowlist | None = None, err: bool = False
+) -> None:
     typer.echo(f"  base      {spec.base.os} {spec.base.version}, disk {spec.disk_size}", err=err)
     content = f"{len(spec.packages)} package(s)"
     if spec.snaps:
@@ -56,6 +59,14 @@ def summarise(spec: Spec, err: bool = False) -> None:
         f"{len(spec.users)} user(s), {len(spec.files)} file(s)",
         err=err,
     )
+    # A repository is not part of the spec, so this is where a person learns which one a package
+    # will pull in. Without it, `docker-ce` looks like an ordinary Ubuntu package.
+    repositories = required_repositories(spec, allowlist or load_allowlist())
+    if repositories:
+        described = ", ".join(
+            f"{repo.id} ({repo.suite}, {' '.join(repo.components)})" for repo in repositories
+        )
+        typer.echo(f"  repos     {described}", err=err)
 
 
 def report(verdict: Verdict, err: bool = False) -> None:

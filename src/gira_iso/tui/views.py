@@ -10,8 +10,9 @@ from rich.table import Table
 from rich.text import Text
 
 from gira_iso import __version__
+from gira_iso.builder.render import required_repositories
 from gira_iso.nl.explain import Explanation
-from gira_iso.policy.evaluate import Verdict
+from gira_iso.policy.evaluate import Allowlist, Verdict, load_allowlist
 from gira_iso.proposals import WARNING, Proposal, Refusal
 from gira_iso.spec.canonical import spec_hash, to_canonical_dict
 from gira_iso.spec.models import Spec
@@ -108,7 +109,12 @@ def usage_line(usage: dict[str, int], latency_ms: int) -> str:
     return "  ·  ".join(parts)
 
 
-def show_spec(console: Console, spec: Spec, usage_line: str = "") -> None:
+def show_spec(
+    console: Console,
+    spec: Spec,
+    usage_line: str = "",
+    allowlist: Allowlist | None = None,
+) -> None:
     body = yaml.safe_dump(to_canonical_dict(spec), sort_keys=False).rstrip()
     console.print(
         Panel(
@@ -118,6 +124,14 @@ def show_spec(console: Console, spec: Spec, usage_line: str = "") -> None:
             border_style=ACCENT,
         )
     )
+    # The spec names a package; it never names the repository. Say which one it pulls in, or
+    # `docker-ce` reads as just another Ubuntu package.
+    repositories = required_repositories(spec, allowlist or load_allowlist())
+    if repositories:
+        described = ", ".join(
+            f"{repo.id} ({repo.suite}, {' '.join(repo.components)})" for repo in repositories
+        )
+        console.print(f"[dim]Repositorios: {described}[/]")
 
 
 def show_policy_table(console: Console, verdict: Verdict) -> None:

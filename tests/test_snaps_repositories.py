@@ -474,3 +474,31 @@ def test_a_build_with_snaps_and_a_repository_records_its_provenance(tmp_path, mo
             "key_sha256": "1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570",
         }
     ]
+
+
+def test_check_names_the_repository_that_provides_a_package(tmp_path: Path) -> None:
+    """S9: a repository is not in the spec, so `check` must say which one a package pulls in."""
+    from typer.testing import CliRunner
+
+    from gira_iso.cli import app
+
+    spec = tmp_path / "mixed.yaml"
+    spec.write_text(yaml.safe_dump({"spec_version": "1", "packages": ["nodejs"]}), encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["check", str(spec)])
+
+    assert result.exit_code == 0, result.output
+    assert "repos     nodesource (nodistro, main)" in result.output
+
+
+def test_the_review_panel_names_the_repository_that_provides_a_package() -> None:
+    from io import StringIO
+
+    from rich.console import Console
+
+    from gira_iso.tui.views import show_spec
+
+    buffer = StringIO()
+    show_spec(Console(file=buffer, width=120), build_spec(packages=["nodejs"]))
+
+    assert "Repositorios: nodesource (nodistro, main)" in buffer.getvalue()
