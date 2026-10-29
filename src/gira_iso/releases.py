@@ -23,6 +23,6 @@ def codename_for(base_version: str) -> str:
         return CODENAMES[base_version]
     except KeyError:
         raise UnknownRelease(
-            f"ubuntu {base_version} has no known release name, so packages cannot be checked "
-            f"against its archive (known: {', '.join(sorted(CODENAMES))})"
+            f"ubuntu {base_version} has no known release name, so its archive and the suite of "
+            f"any vendor repository cannot be resolved (known: {', '.join(sorted(CODENAMES))})"
         ) from None

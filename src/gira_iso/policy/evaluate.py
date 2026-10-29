@@ -25,7 +25,17 @@ from gira_iso.spec.models import FileEntry, Spec
 
 DEFAULT_ALLOWLIST = "allowlist.yaml"
 SNAP_CHANNELS = frozenset({"stable", "candidate", "beta", "edge"})
-SHA256 = re.compile(r"^[0-9a-f]{64}$")
+SHA256 = re.compile(r"^[0-9a-f]{64}\Z")
+# The fields below are interpolated into a provisioning script that runs as root and into
+# root-owned paths. They come from the reviewed allowlist, never from the spec, but a policy
+# edit must not be able to turn data into shell: no quotes, backslashes, whitespace, `$` or
+# backticks, and no path traversal in an identifier. `\Z`, not `$`: `$` also matches before a
+# trailing newline, which is exactly the character that would break out of a heredoc.
+SNAP_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}\Z")
+REPOSITORY_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}\Z")
+SUITE = re.compile(r"^(\{codename\}|[a-z0-9][a-z0-9._-]{0,63})\Z")
+COMPONENT = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}\Z")
+HTTPS_URL = re.compile(r"^https://[A-Za-z0-9._~:/?#\[\]@!&()*+,;=%-]+\Z")
 
 
 @dataclass(frozen=True)
@@ -145,6 +155,10 @@ def _package_entries(raw: Any) -> tuple[frozenset[str], dict[str, str]]:
 def _snap_entries(raw: Any) -> dict[str, SnapPolicy]:
     snaps: dict[str, SnapPolicy] = {}
     for name, settings in raw.items():
+        if not SNAP_NAME.match(str(name)):
+            raise ValueError(
+                f"snap {name!r}: name must be lowercase letters, digits and hyphens"
+            )
         settings = settings or {}
         channel = str(settings.get("channel", "stable"))
         if channel not in SNAP_CHANNELS:
@@ -167,6 +181,10 @@ def _repository_entries(
 ) -> dict[str, RepositoryPolicy]:
     repositories: dict[str, RepositoryPolicy] = {}
     for identifier, settings in raw.items():
+        if not REPOSITORY_ID.match(str(identifier)):
+            raise ValueError(
+                f"repository {identifier!r}: id must be lowercase letters, digits and hyphens"
+            )
         if not isinstance(settings, dict):
             raise ValueError(f"repository {identifier}: expected a mapping")
         key_sha256 = str(settings.get("key_sha256", ""))
@@ -175,15 +193,31 @@ def _repository_entries(
                 f"repository {identifier}: key_sha256 must be 64 lowercase hex characters"
             )
         for field_name in ("url", "key_url"):
-            if not str(settings.get(field_name, "")).startswith("https://"):
-                raise ValueError(f"repository {identifier}: {field_name} must be https")
-        components = tuple(settings.get("components") or ())
+            value = str(settings.get(field_name, ""))
+            if not HTTPS_URL.match(value):
+                raise ValueError(
+                    f"repository {identifier}: {field_name} must be a plain https URL "
+                    "without quotes, whitespace, `$` or backticks"
+                )
+        suite = str(settings.get("suite", ""))
+        if not SUITE.match(suite):
+            raise ValueError(
+                f"repository {identifier}: suite {suite!r} must be a release suite name "
+                "or {codename}"
+            )
+        components = tuple(str(component) for component in settings.get("components") or ())
         if not components:
             raise ValueError(f"repository {identifier}: at least one component is required")
+        for component in components:
+            if not COMPONENT.match(component):
+                raise ValueError(
+                    f"repository {identifier}: components must be lowercase names, "
+                    f"got {component!r}"
+                )
         repositories[str(identifier)] = RepositoryPolicy(
             id=str(identifier),
             url=str(settings["url"]),
-            suite=str(settings["suite"]),
+            suite=suite,
             components=components,
             key_url=str(settings["key_url"]),
             key_sha256=key_sha256,

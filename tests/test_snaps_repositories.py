@@ -7,6 +7,7 @@ manifest says exactly what came from where.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -202,7 +203,7 @@ def test_repository_script_waits_for_cloud_init_before_using_apt(tmp_path: Path)
     """cloud-init installs the archive packages and starts the snaps; apt must not run alongside."""
     render(build_spec(packages=["docker-ce"]), tmp_path, load_allowlist(), KEY)
     script = (tmp_path / "provision" / "repositories.sh").read_text(encoding="utf-8")
-    assert script.index("cloud-init status --wait") < script.index("apt-get update")
+    assert script.index("cloud-init status --wait") < script.index("apt-get")
 
 
 def test_repository_script_verifies_the_key_before_using_it(tmp_path: Path) -> None:
@@ -212,7 +213,7 @@ def test_repository_script_verifies_the_key_before_using_it(tmp_path: Path) -> N
 
     key_check = script.index("sha256sum -c")
     source_write = script.index("Signed-By:")
-    install = script.index("apt-get install")
+    install = script.index("--no-install-recommends")
     assert key_check < source_write < install
     for expected in (
         "1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570",
@@ -300,3 +301,176 @@ def test_goss_asserts_each_snap_is_installed() -> None:
     document = build_goss(build_spec(snaps=["docker"]), ["nginx"])
     assert document["command"]["snap-docker"]["exit-status"] == 0
     assert "snap list docker" in document["command"]["snap-docker"]["exec"]
+
+
+# --- hardening raised by the review ------------------------------------------
+
+
+def repo(**overrides) -> dict:
+    data = {
+        "url": "https://download.docker.com/linux/ubuntu",
+        "suite": "{codename}",
+        "components": ["stable"],
+        "key_url": "https://download.docker.com/linux/ubuntu/gpg",
+        "key_sha256": "a" * 64,
+    }
+    data.update(overrides)
+    return data
+
+
+def repo_policy(identifier: str = "docker-ce", **overrides) -> Allowlist:
+    return policy(
+        packages=[{"name": "docker-ce", "repository": identifier}],
+        repositories={identifier: repo(**overrides)},
+    )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("suite", "noble\nTypes: deb"),
+        ("suite", "noble; rm -rf /"),
+        ("suite", "no ble"),
+        ("url", "https://x/'; touch /tmp/pwned; '"),
+        ("url", "http://insecure.example"),
+        ("url", "https://x/`id`"),
+        ("key_url", "https://x/\n"),
+        ("components", ["sta ble"]),
+        ("components", ["stable", "main;evil"]),
+        ("id", "../keyrings/evil"),
+        ("id", "Docker"),
+    ],
+)
+def test_repository_fields_are_data_not_shell(field_name: str, value) -> None:
+    """These values are interpolated into a script that runs as root. Pattern-check them."""
+    if field_name == "id":
+        with pytest.raises(ValueError, match="repository"):
+            repo_policy(value)
+        return
+    with pytest.raises(ValueError, match=field_name):
+        repo_policy("docker-ce", **{field_name: value})
+
+
+def test_a_well_formed_repository_still_loads() -> None:
+    active = repo_policy()
+    assert "docker-ce" in active.repositories
+
+
+def test_seed_installs_snaps_before_it_enables_services() -> None:
+    spec = build_spec(packages=["nginx"], snaps=["docker"], services={"enable": ["nginx"]})
+    user_data, _ = cloud_init(spec, KEY, load_allowlist())
+    runcmd = yaml.safe_load(user_data.split("\n", 1)[1])["runcmd"]
+    install = next(i for i, line in enumerate(runcmd) if line.startswith("snap install docker"))
+    enable = next(i for i, line in enumerate(runcmd) if line == "systemctl enable nginx")
+    assert install < enable
+
+
+def test_the_provisioner_retries_a_transient_network_failure(tmp_path: Path) -> None:
+    render(build_spec(packages=["docker-ce"]), tmp_path, load_allowlist(), KEY)
+    script = (tmp_path / "provision" / "repositories.sh").read_text(encoding="utf-8")
+    assert "--tries" in script and "--timeout" in script  # the wget fallback
+    assert "Acquire::Retries" in script
+
+
+def test_a_wrong_key_hash_actually_fails_the_script(tmp_path: Path) -> None:
+    """The README promises no warning path. Prove it by running the script, not by reading it."""
+    import subprocess
+
+    render(build_spec(packages=["docker-ce"]), tmp_path, load_allowlist(), KEY)
+    body = (tmp_path / "provision" / "repositories.sh").read_text(encoding="utf-8")
+    body = body.replace("/usr/share/keyrings", str(tmp_path / "keyrings"))
+    body = body.replace("/etc/apt/sources.list.d", str(tmp_path / "sources"))
+    script = tmp_path / "run.sh"
+    script.write_text(body, encoding="utf-8")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "curl").write_text(
+        "#!/bin/sh\n"
+        'out=""\n'
+        'while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; *) shift;; esac; done\n'
+        "printf 'not-the-key\\n' > \"$out\"\n"
+    )
+    for name in ("cloud-init", "apt-get"):
+        (bin_dir / name).write_text("#!/bin/sh\nexit 0\n")
+    for stub in bin_dir.iterdir():
+        stub.chmod(0o755)
+
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    result = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
+
+    assert result.returncode != 0, result.stdout
+    assert not (tmp_path / "keyrings" / "docker-ce.asc").exists()
+    assert not (tmp_path / "sources" / "docker-ce.sources").exists()
+
+
+def test_the_prompt_lists_the_allowed_snaps() -> None:
+    from gira_iso.nl.prompt import catalog_section
+
+    section = catalog_section(load_allowlist())
+    snaps = section.split("Snaps:")[1]
+    assert "docker" in snaps
+    assert "certbot" in snaps
+
+
+def test_catalog_lists_a_snap_it_cannot_describe_by_name_only() -> None:
+    """A drift between allowlist and catalog must be visible, not papered over."""
+    from gira_iso.nl.prompt import catalog_section
+
+    allowlist = policy(snaps={"mystery": {"channel": "edge"}})
+    section = catalog_section(allowlist)
+    assert "  mystery" in section.split("Snaps:")[1]
+    assert "channel edge" not in section
+
+
+def test_unknown_release_message_mentions_repository_suites() -> None:
+    from gira_iso.releases import UnknownRelease, codename_for
+
+    with pytest.raises(UnknownRelease) as raised:
+        codename_for("20.04")
+    assert "repositor" in str(raised.value)
+    assert "20.04" in str(raised.value)
+
+
+def test_a_build_with_snaps_and_a_repository_records_its_provenance(tmp_path, monkeypatch) -> None:
+    """S6 end to end: the wiring in builder/build.py, not a hand-built manifest."""
+    import json
+
+    from gira_iso.builder import build as build_module
+    from gira_iso.builder import packer
+    from gira_iso.builder.build import build_image
+
+    base = tmp_path / "base.img"
+    base.write_bytes(b"QFI\xfb")
+    monkeypatch.setattr(
+        build_module,
+        "ensure_base_image",
+        lambda os_name, version, allowlist, on_progress=None: (base, "1" * 64),
+    )
+    monkeypatch.setattr(build_module, "_virtual_size", lambda path: 10)
+
+    def fake_build(template_dir, variables, log, on_line=None):
+        image = Path(variables["build_dir"]) / "image" / build_module.IMAGE_NAME
+        image.parent.mkdir(parents=True, exist_ok=True)
+        image.write_bytes(b"qcow2-bytes")
+
+    monkeypatch.setattr(packer, "init", lambda *args, **kwargs: None)
+    monkeypatch.setattr(packer, "build", fake_build)
+    monkeypatch.setattr(packer, "version", lambda: "1.16.2")
+
+    spec = build_spec(packages=["nginx", "docker-ce"], snaps=["docker"])
+    result = build_image(spec, work_root=tmp_path / "builds")
+
+    manifest = json.loads(result.manifest.read_text(encoding="utf-8"))
+    assert manifest["snaps"] == [
+        {"name": "docker", "channel": "stable", "classic": True, "revision": None}
+    ]
+    assert manifest["repositories"] == [
+        {
+            "id": "docker-ce",
+            "url": "https://download.docker.com/linux/ubuntu",
+            "suite": "noble",
+            "components": ["stable"],
+            "key_sha256": "1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570",
+        }
+    ]

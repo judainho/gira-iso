@@ -80,15 +80,6 @@ def disk_size_mb(disk_size: str) -> int:
     return int(disk_size.removesuffix("G")) * 1024
 
 
-def effective_packages(spec: Spec, allowlist: Allowlist) -> list[str]:
-    """Spec packages plus what the image needs to be cloud-ready, deduplicated.
-
-    Every package that ends up installed, whatever repository it came from. This is what the
-    manifest records and what the verifier asserts.
-    """
-    return sorted(set(spec.packages) | set(allowlist.mandatory_packages))
-
-
 def archive_packages(spec: Spec, allowlist: Allowlist) -> list[str]:
     """Packages cloud-init may install: only the ones Ubuntu's own archive provides.
 
@@ -108,6 +99,29 @@ def repository_packages(spec: Spec, allowlist: Allowlist) -> dict[str, list[str]
         if repository is not None:
             grouped.setdefault(repository, []).append(package)
     return grouped
+
+
+def cloud_init_packages(spec: Spec, allowlist: Allowlist) -> list[str]:
+    """Exactly what cloud-init installs: the archive packages plus the mandatory ones.
+
+    One function owns this list. Everything else is derived from it, so there is a single place
+    that answers "what does cloud-init receive?".
+    """
+    return sorted(set(archive_packages(spec, allowlist)) | set(allowlist.mandatory_packages))
+
+
+def effective_packages(spec: Spec, allowlist: Allowlist) -> list[str]:
+    """Every package that ends up installed, whatever source it came from.
+
+    This is what the manifest records and what the verifier asserts. Derived from the two
+    install paths, so adding a source cannot leave one of them stale.
+    """
+    from_repositories = {
+        package
+        for packages in repository_packages(spec, allowlist).values()
+        for package in packages
+    }
+    return sorted(set(cloud_init_packages(spec, allowlist)) | from_repositories)
 
 
 @dataclass(frozen=True)
@@ -205,7 +219,7 @@ def cloud_init(
     runcmd += [f"systemctl enable {service}" for service in effective_services(spec)]
     runcmd += [f"systemctl disable {service} || true" for service in spec.services.disable]
 
-    packages = sorted(set(archive_packages(spec, allowlist)) | set(allowlist.mandatory_packages))
+    packages = cloud_init_packages(spec, allowlist)
 
     user_data: dict[str, Any] = {
         "hostname": BUILD_HOSTNAME,

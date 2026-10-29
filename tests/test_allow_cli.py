@@ -161,6 +161,21 @@ def test_list_says_when_nothing_was_added() -> None:
     assert "local     0 package(s), active" in result.output
 
 
+def test_list_shows_the_curated_snaps_and_repositories() -> None:
+    result = runner.invoke(app, ["allow", "list"])
+
+    assert "snaps     certbot, docker" in result.output
+    assert "repos     docker-ce, nodesource" in result.output
+
+
+def test_policy_shows_the_curated_snaps_and_repositories() -> None:
+    result = runner.invoke(app, ["policy"])
+
+    assert result.exit_code == 0
+    assert "snaps     2 (certbot, docker)" in result.output
+    assert "repos     2 (docker-ce, nodesource); 6 package(s) come from them" in result.output
+
+
 def test_list_shows_what_was_added(archive) -> None:
     runner.invoke(app, ["allow", "add", "ripgrep", "-y"])
 

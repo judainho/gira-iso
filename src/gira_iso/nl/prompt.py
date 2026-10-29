@@ -123,9 +123,11 @@ def catalog_section(allowlist: Allowlist) -> str:
     lines += [_entry(name, described_services.get(name)) for name in sorted(allowlist.services)]
     if allowlist.snaps:
         lines += ["", "Snaps:"]
+        # No invented description: a snap the catalog does not describe is listed by name, so the
+        # drift between allowlist.yaml and catalog.yaml stays visible instead of being papered over.
         lines += [
-            _entry(name, described_snaps.get(name) or {"description": f"channel {policy.channel}"})
-            for name, policy in sorted(allowlist.snaps.items())
+            _entry(name, described_snaps.get(name))
+            for name in sorted(allowlist.snaps)
         ]
     external = data.get("programs_outside_the_catalog", [])
     if external:

@@ -17,7 +17,7 @@ fetch() {
   if command -v curl >/dev/null 2>&1; then
     curl -fsSL --retry 3 --max-time 60 -o "$2" "$1"
   elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$2" "$1"
+    wget -q --tries=3 --timeout=30 -O "$2" "$1"
   else
     echo "neither curl nor wget is available to fetch $1" >&2
     exit 1
@@ -42,7 +42,8 @@ Signed-By: /usr/share/keyrings/{{ repo.id }}.asc
 EOF
 {% endfor %}
 
-apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends {{ all_packages | join(' ') }}
+apt-get -o Acquire::Retries=3 update
+DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 install -y \
+  --no-install-recommends {{ all_packages | join(' ') }}
 
 echo "repositories ready: {{ repositories | map(attribute='id') | join(', ') }}"

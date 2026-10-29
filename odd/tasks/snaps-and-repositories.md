@@ -72,3 +72,7 @@ Test runner: `uv run pytest` (network tests deselected) and `uv run ruff check .
   `cb0dcb8` by waiting for cloud-init in `repositories.sh`, pinned with a test. Targeted validator
   then approved; authority acknowledged and burned. Fourteen advisory findings recorded in
   `backlog.md` as separate later work.
+- **L10** — Thirteen of the fourteen advisories closed in one follow-up change: strict validation of
+  repository/snap fields (the `\Z` anchors matter: `$` accepts a trailing newline), retry budgets,
+  the key check executed with a wrong digest, seed/manifest/CLI/prompt assertions, and three
+  readability clean-ups. `R1-snap-channel-not-pinned` stays open: it needs real revision numbers.
