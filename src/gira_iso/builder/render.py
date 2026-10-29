@@ -20,7 +20,7 @@ import yaml
 from jinja2 import Environment, StrictUndefined
 
 from gira_iso.policy.evaluate import Allowlist
-from gira_iso.releases import codename_for
+from gira_iso.releases import UnknownRelease, codename_for
 from gira_iso.spec.canonical import spec_hash
 from gira_iso.spec.models import Spec
 
@@ -157,6 +157,22 @@ def required_repositories(spec: Spec, allowlist: Allowlist) -> list[ResolvedRepo
             )
         )
     return resolved
+
+
+def repository_summary(spec: Spec, allowlist: Allowlist) -> str:
+    """The repositories this spec needs, for a human, or "" when none can be resolved.
+
+    Display only. An unsupported release must fall through to the policy verdict instead of
+    raising here: the person needs to read "no pinned image for ubuntu 20.04", not a traceback
+    about a codename.
+    """
+    try:
+        repositories = required_repositories(spec, allowlist)
+    except UnknownRelease:
+        return ""
+    return ", ".join(
+        f"{repo.id} ({repo.suite}, {' '.join(repo.components)})" for repo in repositories
+    )
 
 
 def snap_install_commands(spec: Spec, allowlist: Allowlist) -> list[str]:

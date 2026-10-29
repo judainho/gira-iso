@@ -11,7 +11,7 @@ import typer
 import yaml
 from pydantic import ValidationError
 
-from gira_iso.builder.render import required_repositories
+from gira_iso.builder.render import repository_summary
 from gira_iso.errors import (
     EXIT_INTERRUPTED,
     EXIT_INVALID,
@@ -61,12 +61,9 @@ def summarise(
     )
     # A repository is not part of the spec, so this is where a person learns which one a package
     # will pull in. Without it, `docker-ce` looks like an ordinary Ubuntu package.
-    repositories = required_repositories(spec, allowlist or load_allowlist())
-    if repositories:
-        described = ", ".join(
-            f"{repo.id} ({repo.suite}, {' '.join(repo.components)})" for repo in repositories
-        )
-        typer.echo(f"  repos     {described}", err=err)
+    summary = repository_summary(spec, allowlist or load_allowlist())
+    if summary:
+        typer.echo(f"  repos     {summary}", err=err)
 
 
 def report(verdict: Verdict, err: bool = False) -> None:

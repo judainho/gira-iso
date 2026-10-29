@@ -502,3 +502,37 @@ def test_the_review_panel_names_the_repository_that_provides_a_package() -> None
     show_spec(Console(file=buffer, width=120), build_spec(packages=["nodejs"]))
 
     assert "Repositorios: nodesource (nodistro, main)" in buffer.getvalue()
+
+
+def test_an_unsupported_base_still_gets_the_policy_verdict_not_a_crash(
+    tmp_path: Path,
+) -> None:
+    """Describing repositories must not pre-empt the verdict: base 20.04 is rejected by policy."""
+    from typer.testing import CliRunner
+
+    from gira_iso.cli import app
+
+    spec = tmp_path / "old.yaml"
+    spec.write_text(
+        yaml.safe_dump(
+            {
+                "spec_version": "1",
+                "base": {"os": "ubuntu", "version": "20.04"},
+                "packages": ["nodejs"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["check", str(spec)])
+
+    assert result.exit_code == 1, result.output
+    assert "base.unknown" in result.output
+
+
+def test_repository_summary_is_empty_when_the_release_cannot_be_resolved() -> None:
+    from gira_iso.builder.render import repository_summary
+
+    # docker-ce resolves its suite from the codename; 20.04 has none.
+    spec = build_spec(packages=["docker-ce"], base={"os": "ubuntu", "version": "20.04"})
+    assert repository_summary(spec, load_allowlist()) == ""
