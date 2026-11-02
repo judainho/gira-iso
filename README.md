@@ -87,10 +87,11 @@ image download, an optional dependency such as `openstacksdk` for `push`), `130`
 
 ## Extending the allowlist
 
-The packaged list has 42 packages. When a request needs a real Ubuntu package that is not on it, the
-model is only asked which package a word means ("node" is `nodejs`); the code then asks the Ubuntu
-archive (Launchpad) whether that release publishes it, and **you** approve each package. The model
-never approves anything, and `--yes` never answers this question.
+The packaged list has 42 Ubuntu-archive packages plus 6 that come from a vendor repository (48
+entries in all, see "Snaps and official repositories"). When a request needs a real Ubuntu package
+that is not on it, the model is only asked which package a word means ("node" is `nodejs`); the code
+then asks the Ubuntu archive (Launchpad) whether that release publishes it, and **you** approve each
+package. The model never approves anything, and `--yes` never answers this question.
 
 ```bash
 gira-iso allow add nodejs --base 24.04    # checks the archive, shows what it found, asks
@@ -122,7 +123,7 @@ What ships today, all reviewed in `policy/allowlist.yaml`:
 
 | Source | Entries | How it is pinned |
 |---|---|---|
-| Snap | `docker`, `certbot` | channel `stable`, `classic` recorded per snap; an optional `revision` pins it exactly |
+| Snap | `docker`, `certbot` | channel `stable`, `classic` recorded per snap, and a concrete revision (`3618`, `5911`) that the build asserts against `snap list` |
 | Vendor apt repository | `docker-ce`, `nodesource` | the GPG key is pinned by sha256 and verified before apt is allowed to trust it |
 
 Rules that do not bend:
@@ -139,6 +140,11 @@ Rules that do not bend:
 - **Repository packages never go through cloud-init.** cloud-init runs before the repository
   exists, so a vendor package is installed by a separate provision step that first verifies the
   key and runs `apt-get update`.
+- **A snap is pinned to a revision, not to a channel.** `stable` is a moving pointer: two builds of
+  the same spec could install different payloads and the manifest could only say "stable". The
+  allowlist pins `docker=3618` and `certbot=5911`; the build assertion and the verification compare
+  the revision `snap list` reports with the pin, so a drift fails the build instead of producing a
+  manifest that lies. Bumping a pin is a reviewed change (see `backlog.md`).
 - **A snap owns its service.** Do not also name it in `services.enable`: the snap starts and
   enables itself, and asking systemd for a unit of that name fails the build. The policy rejects
   the combination with `service.snap_managed`.
