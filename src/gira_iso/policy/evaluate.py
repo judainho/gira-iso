@@ -229,9 +229,10 @@ def _repository_entries(
 
 ENV_VAR = "GIRA_ISO_ALLOWLIST"
 
-# Accounts the tool itself creates. They must match builder.render.BUILD_USER and
-# verify.vm.VERIFY_USER (a test checks it). A spec user with one of these names would be
-# deleted by the finalize script or clash with the verifier.
+# Accounts the tool itself creates or answers to. The build user must match
+# builder.render.BUILD_USER (a test checks it): finalize deletes it by name, so a spec user
+# with that name would be removed. "gira-iso" is the tool's own name: an image must not ship
+# a user that looks like it. The verifier no longer creates an account at all.
 RESERVED_USERS = frozenset({"root", "packer", "gira-iso"})
 
 

@@ -20,7 +20,6 @@ from gira_iso.builder.render import (
 from gira_iso.policy.evaluate import RESERVED_USERS, evaluate, load_allowlist
 from gira_iso.spec.models import Spec
 from gira_iso.verify.goss import build_goss
-from gira_iso.verify.vm import VERIFY_USER
 
 
 def valid_spec(**extra) -> Spec:
@@ -57,7 +56,10 @@ def test_the_key_carries_the_marker_the_script_searches_for(tmp_path: Path) -> N
 
 
 def test_the_names_reserved_by_the_policy_are_the_ones_the_tool_really_uses() -> None:
-    assert {"root", BUILD_USER, VERIFY_USER} == RESERVED_USERS
+    assert BUILD_USER in RESERVED_USERS
+    # The verifier no longer creates an account, but an image must not ship a user with the
+    # tool's own name either.
+    assert "gira-iso" in RESERVED_USERS
 
 
 # --- running the script against a fake system ---------------------------------------------

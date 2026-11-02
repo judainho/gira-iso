@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -133,32 +134,37 @@ class FakeGuest:
         self.killed = True
 
 
-@pytest.mark.parametrize("error", [KeyboardInterrupt(), RuntimeError("no ssh")])
-def test_a_guest_that_was_started_is_stopped_when_waiting_for_ssh_fails(
+class FakeAgent:
+    def __init__(self) -> None:
+        self.shut_down = False
+
+    def shutdown(self) -> None:
+        self.shut_down = True
+
+
+@pytest.mark.parametrize("error", [KeyboardInterrupt(), RuntimeError("no agent")])
+def test_a_guest_that_was_started_is_stopped_when_waiting_for_the_agent_fails(
     monkeypatch, tmp_path: Path, error: BaseException
 ) -> None:
     guest = FakeGuest()
+    agent = FakeAgent()
     machine = VirtualMachine(image=tmp_path / "image.qcow2", workdir=tmp_path / "run")
-    poweroffs = []
 
     monkeypatch.setattr(machine, "_require_tools", lambda: None)
     monkeypatch.setattr(machine, "_prepare_disk", lambda: None)
     monkeypatch.setattr(machine, "_prepare_seed", lambda: None)
-    monkeypatch.setattr(machine, "_ssh_args", lambda: ["ssh", "guest"])
     monkeypatch.setattr(machine, "_boot", lambda: setattr(machine, "_process", guest))
+    machine.agent = agent
 
     def never_ready():
         raise error
 
-    monkeypatch.setattr(machine, "_wait_for_ssh", never_ready)
-    monkeypatch.setattr(
-        "gira_iso.verify.vm.subprocess.run", lambda *args, **kwargs: poweroffs.append(args)
-    )
+    monkeypatch.setattr(machine, "_wait_for_agent", never_ready)
 
     with pytest.raises(type(error)):
         machine.__enter__()
 
-    assert poweroffs, "the guest was never asked to power off"
+    assert agent.shut_down, "the guest was never asked to power off"
     assert guest.waited
     assert machine._process is None
 
@@ -209,58 +215,26 @@ def test_a_nonsense_timeout_falls_back_to_the_default(monkeypatch, value: str) -
     assert build_timeout() == DEFAULT_BUILD_TIMEOUT
 
 
-# --- the verification key is a credential too -----------------------------------------------------
+# --- the channel is the guest agent, so there is no key to leak -----------------------------------
 
 
-def _machine_with_key(monkeypatch, tmp_path: Path):
+def test_stopping_a_guest_that_never_started_is_quiet(tmp_path: Path) -> None:
     machine = VirtualMachine(image=tmp_path / "image.qcow2", workdir=tmp_path / "run")
-    machine.workdir.mkdir()
-    machine.key = machine.workdir / "id_ed25519"
-    machine.key.write_text("private")
-    machine.key.with_suffix(".pub").write_text("public")
-    (machine.workdir / "console.log").write_text("evidence")
-    monkeypatch.setattr(machine, "_ssh_args", lambda: ["ssh", "guest"])
-    monkeypatch.setattr("gira_iso.verify.vm.subprocess.run", lambda *args, **kwargs: None)
-    return machine
+
+    machine.stop()  # no process and no agent yet: nothing to do, nothing to fail
 
 
-def test_the_verification_key_is_deleted_when_the_guest_stops(monkeypatch, tmp_path: Path) -> None:
-    machine = _machine_with_key(monkeypatch, tmp_path)
-    machine._process = FakeGuest()
-
-    machine.stop()
-
-    assert not (machine.workdir / "id_ed25519").exists()
-    assert not (machine.workdir / "id_ed25519.pub").exists()
-    assert (machine.workdir / "console.log").read_text() == "evidence"  # the evidence stays
-
-
-def test_the_key_is_deleted_even_if_powering_off_fails(monkeypatch, tmp_path: Path) -> None:
-    machine = _machine_with_key(monkeypatch, tmp_path)
-
+def test_stopping_kills_a_guest_that_ignores_the_shutdown(tmp_path: Path) -> None:
     class Stuck(FakeGuest):
         def wait(self, timeout=None):
-            raise RuntimeError("cannot stop")
+            raise subprocess.TimeoutExpired("qemu", timeout or 1)
 
-    machine._process = Stuck()
-
-    with pytest.raises(RuntimeError):
-        machine.stop()
-
-    assert not (machine.workdir / "id_ed25519").exists()
-
-
-def test_stopping_a_guest_that_never_started_still_removes_the_key(
-    monkeypatch, tmp_path: Path
-) -> None:
-    machine = _machine_with_key(monkeypatch, tmp_path)  # seed prepared, boot never reached
+    machine = VirtualMachine(image=tmp_path / "image.qcow2", workdir=tmp_path / "run")
+    guest = Stuck()
+    machine.agent = FakeAgent()
+    machine._process = guest
 
     machine.stop()
 
-    assert not (machine.workdir / "id_ed25519").exists()
-
-
-def test_a_machine_without_a_key_stops_quietly(tmp_path: Path) -> None:
-    machine = VirtualMachine(image=tmp_path / "image.qcow2", workdir=tmp_path / "run")
-
-    machine.stop()  # no key attribute yet, no process: nothing to do, nothing to fail
+    assert guest.killed
+    assert machine._process is None

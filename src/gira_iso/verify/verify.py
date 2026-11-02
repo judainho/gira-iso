@@ -127,7 +127,7 @@ def verify_build(
             )
         )
 
-        hostname = vm.ssh("hostname", check=False).stdout.strip()
+        hostname = vm.run("hostname").stdout.strip()
         checks.append(
             CheckResult(
                 "image boots unconfigured",
@@ -139,10 +139,10 @@ def verify_build(
         try:
             vm.upload(_goss_binary(), GOSS_REMOTE)
             vm.upload(goss_spec, GOSS_SPEC_REMOTE)
-            vm.ssh(f"sudo chmod 0755 {GOSS_REMOTE}", check=True)
-            result = vm.ssh(
-                f"sudo {GOSS_REMOTE} --gossfile {GOSS_SPEC_REMOTE} validate --format json",
-                check=False,
+            # The agent runs as root: no sudo, no chown, one command.
+            result = vm.run(
+                f"chmod 0755 {GOSS_REMOTE} && "
+                f"{GOSS_REMOTE} --gossfile {GOSS_SPEC_REMOTE} validate --format json",
                 timeout=300,
             )
             goss_output = result.stdout or result.stderr
