@@ -59,11 +59,6 @@ runbook (`clouds.yaml`, nombre en Glance, comprobación manual de arranque).
 
 ## 2. Endurecimiento pendiente
 
-- **Verificación por `qemu-guest-agent` en vez de SSH, y el seed con sudo sin contraseña.** Son el
-  mismo cambio: hoy el verificador entra por SSH con un usuario que crea él mismo con sudo NOPASSWD,
-  así que ninguna verificación puede afirmar "esta imagen no tiene cuentas con sudo". El canal
-  virtio-serial ya se usa en la VM de verificación para que el agente arranque; falta usarlo como
-  transporte. El plan lo deja como alternativa opcional (D1) y `ssh` sigue siendo obligatorio.
 - **Un manifest puede mentir.** El checksum ata los bytes, no las afirmaciones. Firmar el manifest
   queda para cuando alguien dependa de esa garantía.
 - **Mostrar las dependencias de un paquete que se va a agregar.** Permitir `nodejs` permite todo su
@@ -106,7 +101,8 @@ necesita comparar imágenes por hash.
 
 - `scripts/boot-vanilla.sh` duplica parte de `verify/vm.py`. Si vuelve a divergir, borrarlo y darle
   un modo `--no-goss` a `gira-iso verify`.
-- goss se sube al guest en cada verificación (~20 MB por SSH). Funciona.
+- goss se sube al guest en cada verificación (~16 MB por el canal del agente, en trozos). Funciona,
+  pero sigue siendo el objeto más grande que cruza el canal.
 
 ---
 

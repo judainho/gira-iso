@@ -634,3 +634,16 @@ repositorios antes del veredicto abortaba `check` en una base sin release conoci
 586 tests en verde, `ruff check` y `ruff format --check` limpios. Detalle y bitácora completa en
 `odd/tasks/snaps-and-repositories.md`. Sigue abierto: medir F5 con una credencial válida y probar la subida a
 OpenStack contra una nube real.
+
+**2026-11-01 — La verificación deja de usar SSH: canal por el agente QEMU.** El seed de verificación
+declaraba su propio usuario con `sudo NOPASSWD`, así que ninguna verificación podía afirmar nada sobre
+cuentas con sudo: el verificador creaba la que iba a auditar. Ahora el seed declara `users: []` y los
+comandos, las subidas y el apagado viajan por el agente QEMU en el puerto virtio-serial que ya existía
+(`verify/qga.py`): `guest-ping` para saber que el invitado está arriba, `guest-exec`/`guest-exec-status`
+para ejecutar como root, `guest-file-open/write/close` para subir goss en trozos y `guest-shutdown` para
+apagar. `ssh` y `ssh-keygen` dejan de ser requisitos del verificador; D1 se mantiene porque la imagen
+debe seguir siendo usable, no porque el verificador lo necesite. goss gana
+`no-passwordless-sudo-beyond-the-spec`, que excluye solo a root y a los usuarios que el spec declare con
+`sudo`. Prueba real: build nuevo `20261102T031605Z`, 24 aserciones en verde (la primera corrida contra
+el artefacto del 26-oct falló porque ese build es anterior a C1 y conservaba el usuario `packer`; el
+veredicto era correcto). 611 tests, ruff limpio.
