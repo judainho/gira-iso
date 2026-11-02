@@ -6,6 +6,7 @@ what makes the metrics reproducible and testable without a model.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,13 +17,19 @@ from gira_iso.spec.models import Spec
 FIELDS = ("packages", "snaps", "services", "users", "files")
 
 
+def _file_key(entry: Any) -> str:
+    """Path plus content: two files at the same path differ if their bytes do."""
+    digest = hashlib.sha256(entry.content.encode("utf-8")).hexdigest()[:12]
+    return f"{entry.path}#{digest}"
+
+
 def field_sets(spec: Spec) -> dict[str, frozenset[str]]:
     return {
         "packages": frozenset(spec.packages),
         "snaps": frozenset(spec.snaps),
         "services": frozenset(spec.services.enable),
         "users": frozenset(user.name for user in spec.users),
-        "files": frozenset(entry.path for entry in spec.files),
+        "files": frozenset(_file_key(entry) for entry in spec.files),
     }
 
 
