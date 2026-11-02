@@ -7,13 +7,17 @@ from pathlib import Path
 
 import pytest
 from conftest import VALID_KEY
+from typer.testing import CliRunner
 
+from gira_iso.cli import app
 from gira_iso.eval.dataset import Case, Expectation, load_cases
-from gira_iso.eval.runner import aggregate, replay, run_eval
+from gira_iso.eval.runner import RecordError, aggregate, replay, run_eval
 from gira_iso.eval.scoring import CaseResult, compare, score_case
 from gira_iso.nl.client import Completion
 from gira_iso.policy.evaluate import load_allowlist
 from gira_iso.spec.models import Spec
+
+runner = CliRunner()
 
 
 def test_dataset_loads_with_unique_ids_and_both_languages() -> None:
@@ -204,3 +208,43 @@ def test_run_then_replay_gives_the_same_verdicts(tmp_path: Path, allowlist) -> N
 
     replayed = replay(record, cases=cases, allowlist=allowlist)
     assert [result.passed for result in replayed.results] == [True, False]
+
+
+def test_replay_refuses_a_missing_recording(tmp_path: Path, allowlist) -> None:
+    with pytest.raises(RecordError, match="no such recording"):
+        replay(tmp_path / "absent.json", cases=[], allowlist=allowlist)
+
+
+def test_replay_refuses_a_file_that_is_not_json(tmp_path: Path, allowlist) -> None:
+    record = tmp_path / "notes.json"
+    record.write_text("not json at all", encoding="utf-8")
+
+    with pytest.raises(RecordError, match="not valid JSON"):
+        replay(record, cases=[], allowlist=allowlist)
+
+
+def test_replay_refuses_json_without_entries(tmp_path: Path, allowlist) -> None:
+    record = tmp_path / "manifest.json"
+    record.write_text(json.dumps({"model": "stub"}), encoding="utf-8")
+
+    with pytest.raises(RecordError, match="it has no entries"):
+        replay(record, cases=[], allowlist=allowlist)
+
+
+def test_replay_refuses_an_entry_without_a_case_id(tmp_path: Path, allowlist) -> None:
+    record = tmp_path / "run.json"
+    record.write_text(json.dumps({"model": "stub", "entries": [{"raw": "{}"}]}), encoding="utf-8")
+
+    with pytest.raises(RecordError, match="an entry has no case_id"):
+        replay(record, cases=[], allowlist=allowlist)
+
+
+def test_the_cli_reports_a_bad_recording_in_one_line(tmp_path: Path) -> None:
+    record = tmp_path / "bad.json"
+    record.write_text("{", encoding="utf-8")
+
+    result = runner.invoke(app, ["eval", "--replay", str(record)])
+
+    assert result.exit_code == 2
+    assert result.output.startswith("error:")
+    assert "Traceback" not in result.output

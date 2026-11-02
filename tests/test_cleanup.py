@@ -224,3 +224,70 @@ def test_the_menu_offers_to_clean_incomplete_builds(monkeypatch, tmp_path: Path)
     assert "build(s) incompleto(s)" in result.output
     assert "Borrados 1 build(s)" in result.output
     assert not orphan.exists()
+
+
+def _cached_manifest(directory: Path, base_name: str) -> None:
+    import json
+
+    manifest = {
+        "spec_sha256": "a" * 64,
+        "spec": {"packages": ["nginx"]},
+        "base": {
+            "os": "ubuntu",
+            "version": "24.04",
+            "url": f"https://cloud-images.ubuntu.com/{base_name}",
+            "sha256": "b" * 64,
+        },
+        "policy": {"source": "packaged:allowlist.yaml", "sha256": "c" * 64},
+        "builder": {
+            "packer_version": "1.16.2",
+            "plugin_version": "1.1.7",
+            "template_sha256": "d" * 64,
+        },
+        "packages": ["nginx"],
+        "services": [],
+        "artifact": {
+            "file": "image.qcow2",
+            "sha256": "e" * 64,
+            "size_bytes": 1,
+            "virtual_size_bytes": 1,
+        },
+    }
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def test_clean_bases_keeps_what_a_manifest_still_points_at(monkeypatch, tmp_path: Path) -> None:
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "noble.img").write_bytes(b"x" * 32)
+    (cache / "jammy.img").write_bytes(b"y" * 32)
+    (cache / "noble.img.part").write_bytes(b"z" * 16)
+    monkeypatch.setattr("gira_iso.builder.base.cache_dir", lambda: cache)
+
+    builds = tmp_path / "builds"
+    _cached_manifest(builds / "20260101T000000Z-abcdef123456", "noble.img")
+
+    result = runner.invoke(app, ["clean", "--bases", "--work-root", str(builds), "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert (cache / "noble.img").exists()
+    assert not (cache / "jammy.img").exists()
+    assert not (cache / "noble.img.part").exists()
+    assert "removed   2 base image(s)" in result.output
+
+
+def test_clean_bases_says_when_there_is_nothing_to_do(monkeypatch, tmp_path: Path) -> None:
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "noble.img").write_bytes(b"x" * 32)
+    monkeypatch.setattr("gira_iso.builder.base.cache_dir", lambda: cache)
+
+    builds = tmp_path / "builds"
+    _cached_manifest(builds / "20260101T000000Z-abcdef123456", "noble.img")
+
+    result = runner.invoke(app, ["clean", "--bases", "--work-root", str(builds), "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "nothing to clean in the base cache" in result.output
+    assert (cache / "noble.img").exists()

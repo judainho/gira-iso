@@ -1,7 +1,8 @@
 # Flujo de control de gira-iso
 
-Estado: **P0 a P4 cerradas, C1 confirmado con un build real, y la lista permitida ya se puede ampliar** (flujo de control, ver el log de [`plan-v1.md`](plan-v1.md)). Este documento
-describe el código tal como está y responde: *¿quién decide qué, en qué orden, dónde se puede parar todo
+Estado: **P0 a P4 cerradas, C1 confirmado con un build real, la lista permitida ya se puede ampliar, y
+la extensión de snaps y repositorios oficiales está integrada** (flujo de control, ver el log de
+[`plan-v1.md`](plan-v1.md)). Este documento describe el código tal como está y responde: *¿quién decide qué, en qué orden, dónde se puede parar todo
 y qué pasa cuando algo falla?*
 
 Convención: el código, los identificadores y los comentarios están en inglés; este documento, en español.
@@ -39,6 +40,8 @@ flowchart LR
 | Persona | Aprobar, paquete por paquete, ampliar la lista de este equipo | — |
 | Esquema (`spec/models.py`) | Rechazar formas inválidas (campos extra, tamaños, nombres) | Decidir qué paquetes son seguros |
 | Política (`policy/`) | Rechazar paquetes, servicios, rutas, bases y nombres de usuario reservados | Nada con red ni con el sistema de archivos (función pura) |
+| Snap store (`snapd`) | Instalar el snap que la política nombra, en el canal o la revisión que la política fija | Elegir canal, revisión o confinamiento: nunca vienen del spec |
+| Repositorio apt de un tercero | Servir los paquetes que la política le asigna a ese repositorio | Entrar por un cambio hecho en esta máquina: solo por PR a la lista empaquetada |
 | `build_image` | Volver a evaluar la política (puerta independiente del modelo) y construir | Aceptar un spec que no pasó |
 | `finalize.sh` | Eliminar el usuario de build y probar que no queda rastro, o impedir el apagado | — |
 
@@ -217,6 +220,51 @@ paquetes), se guarda con el hash de la petición que lo motivó y entra en el di
 manifest de cada imagen que lo usa. El modo estricto (`GIRA_ISO_STRICT=1`, o implícito con
 `GIRA_ISO_ALLOWLIST` salvo `GIRA_ISO_ALLOW_LOCAL=1`) ignora y rechaza cualquier adición.
 
+### Snaps y repositorios de terceros (paso 5b: dentro del build)
+
+Un spec puede nombrar `snaps: [certbot]` y paquetes que la política mapea a un repositorio de tercero
+(`docker-ce`, `nodejs`). Ninguno de los dos es una vía para que el modelo elija un origen: el spec
+nombra identificadores, y la URL, la suite, los componentes y el hash de la clave viven en la lista
+empaquetada.
+
+```mermaid
+flowchart TD
+    S[spec: packages + snaps] --> P{paso 5: la política resuelve}
+    P -->|paquete del archivo| CI[cloud-init packages:]
+    P -->|paquete con repository| R[provisioner de repositorios]
+    P -->|snap| SN[snap install name=revision]
+    R --> W[esperar a que cloud-init termine]
+    W --> K[descargar la clave y comparar sha256]
+    K -- no coincide --> F[[el build falla: no hay manifest]]
+    K -- coincide --> KR["/usr/share/keyrings/id.asc + Signed-By"]
+    KR --> AU[apt-get update + install]
+    AU --> A[assert.sh: dpkg -l / snap list]
+    SN --> A
+    CI --> A
+
+    classDef stop fill:#fde2e2,stroke:#c0392b;
+    class F stop;
+```
+
+- **El repositorio no es un campo del spec.** Es un detalle de implementación de un paquete: `docker-ce`
+  trae el repositorio de Docker, `nodejs` el de NodeSource. Añadir uno es un PR a la lista empaquetada,
+  no un comando desde esta máquina, porque no existe una comprobación de archivo que lo respalde.
+- **La clave de un repositorio es confianza root permanente.** Firma todo lo que apt instale desde ese
+  origen en el futuro, no solo lo del spec. Por eso se fija por sha256 y no hay camino de advertencia
+  que continúe: si el hash no coincide, el build no produce manifest.
+- **cloud-init corre antes de que el repositorio exista.** Un paquete de repositorio nunca viaja en
+  `packages:`; lo instala un provisioner que primero espera a cloud-init (sin esa espera dos procesos
+  pelean por el candado de dpkg: fue el hallazgo crítico de la revisión), descarga la clave, la compara,
+  la deja como `.asc`, escribe `Signed-By` y solo entonces ejecuta apt.
+- **Un snap es dueño de su servicio.** No se puede declarar el mismo nombre en `services.enable`: el
+  snap se habilita solo y pedirle a systemd una unidad con ese nombre falla el build
+  (`service.snap_managed`).
+- **La revisión manda sobre el canal.** `snap install docker=3618 --classic`. Si la política no fija
+  revisión, se usa el canal, que es un puntero móvil, y el manifiesto no puede afirmar qué se instaló.
+- **Qué comprueba y qué registra.** `assert.sh` comprueba `dpkg -l` y `snap list` incluida la revisión;
+  goss repite la comprobación al verificar; el manifiesto guarda nombre/canal/confinamiento/revisión de
+  cada snap y URL/suite/componentes/hash de clave de cada repositorio.
+
 ### Cómo lo presenta cada interfaz
 
 | Aspecto | Menú (`tui._TuiIo`) | CLI (`cli._CliIo`) |
@@ -294,7 +342,7 @@ construyendo, avisa que la imagen quedó incompleta).
 |---|---|---|---|
 | API key | al pedirla / variable de entorno | memoria del proceso | al salir |
 | Preferencias (último nombre/destino) | tras exportar en el menú | `~/.local/share/gira-iso/settings.yaml` | nunca |
-| Base oficial descargada | primer uso o desde el menú | `~/.cache/gira-iso/images/` | **nunca** (no hay comando; ver sección 9) |
+| Base oficial descargada | primer uso o desde el menú | `~/.cache/gira-iso/images/` | `gira-iso clean --bases`, y nunca la que un manifest referencia (C7) |
 | Descarga parcial `*.part` | durante la descarga | junto a la base | siempre: al verificar, y ante checksum, red o `Ctrl+C` (C5) |
 | Base subida por el usuario | opción 2 | `~/.local/share/gira-iso/bases/` | nunca |
 | Candado `builds/.lock` | `build_image` | directorio de builds | lo suelta el kernel al terminar o morir (C3) |
@@ -303,7 +351,9 @@ construyendo, avisa que la imagen quedó incompleta).
 | Usuario `packer` dentro de la VM | cloud-init del build | la VM | `finalize.sh`, antes de apagar (C1) |
 | Paquetes agregados a la lista | una aprobación (menú o `allow add`) | `~/.local/share/gira-iso/allowlist-additions.yaml` | `allow remove`, o la opción 5 del menú |
 | Registro de auditoría de adiciones | cada alta o baja | `~/.local/share/gira-iso/allowlist-additions.log` (JSON por línea) | nunca |
-| Plugin de Packer | `packer init` | `~/.packer.d/` | nunca |
+| Plugin de Packer | `packer plugins install` | `~/.config/packer/plugins/` | nunca; su sha256 se verifica contra `toolchain.lock` (C8) |
+| Clave GPG de un repositorio | provisioner del build | dentro de la imagen, `/usr/share/keyrings/<id>.asc` | con la imagen: no queda copia en el host |
+| Snap instalado | `snap install` del build | dentro de la imagen, con la revisión fijada | con la imagen |
 | Imagen y manifest | build correcto | `builds/<id>/image/` y `manifest.json` | con `delete` |
 | Copia exportada | menú o `download` | carpeta elegida | a mano |
 
@@ -353,6 +403,19 @@ nunca carpetas ajenas ni enlaces simbólicos.
 | A7 | Modo estricto: ni se leen, ni se consultan, ni se guardan | `additions.strict_mode` | `AdditionsDisabled` (1) |
 | A8 | Los servicios no se amplían; una lista personalizada o un spec ya hecho tampoco | `workflow/create.py` | — |
 
+### Snaps y repositorios de terceros
+
+| Id | Control | Dónde | Si falla |
+|---|---|---|---|
+| S1 | El spec nombra **identificadores**: un paquete que la política asigna a un repositorio, o un snap de la lista. El spec no puede nombrar URL, suite ni clave | `policy/evaluate.py` | `repository.unknown`, `snap.not_allowed`, `service.snap_managed` |
+| S2 | Validación estricta de `id`/`suite`/`components`/`url`/`key_url` con ancla `\Z` (`$` aceptaría un salto de línea) y lista cerrada de componentes | `policy/evaluate.py` | violación de política, nada se escribe |
+| S3 | La clave se descarga dentro del build, se compara con el sha256 fijado y solo entonces se instala como `.asc` con `Signed-By` | `templates/scripts/repositories.sh.j2` | el script aborta y el build no produce manifest |
+| S4 | El provisioner espera a que cloud-init termine y reintenta apt con presupuesto acotado | `templates/scripts/repositories.sh.j2` | sin la espera, dos procesos pelean por dpkg (hallazgo crítico de la revisión) |
+| S5 | Un paquete de repositorio nunca viaja en `packages:` de cloud-init; lo instala el provisioner tras el `apt-get update` | `builder/render.py` | apt no tendría el origen todavía |
+| S6 | El snap se instala con la revisión fijada y la aserción del build y goss comprueban `snap list` **y la revisión instalada** | `render.py`, `assert.sh.j2`, `verify/goss.py` | una revisión distinta falla el build: el manifiesto no puede mentir |
+| C7 | `gira-iso clean --bases` borra bases en caché, salvo las que cualquier manifest del área de trabajo referencia | `cli/images.py`, `builder/base.py` | no borra nada |
+| C8 | El binario del plugin de Packer se compara con el sha256 de `toolchain.lock` | `scripts/check-toolchain.sh`, `toolchain.lock` | `check-toolchain` falla y dice qué versión y hash esperaba |
+
 ---
 
 ## 8. Hallazgos y su cierre
@@ -387,19 +450,22 @@ Además aparecieron dos hallazgos nuevos, ya corregidos:
 
 - **Reintentos y puntos de reanudación.** Un build interrumpido se descarta y se empieza de cero. Reanudar
   exigiría que Packer lo permitiera; no se intentó.
-- **La caché de bases oficiales nunca se limpia.** No hay comando para borrarlas.
 - **El seed de la verificación crea un usuario con sudo sin contraseña** (el del propio verificador), de modo
   que la verificación no puede afirmar "esta imagen no tiene cuentas con sudo". El usuario de *build* sí se
-  comprueba (C1); el de verificación sigue en el backlog.
-- **`packer init` instala el plugin en `~/.packer.d` sin verificar el binario descargado.**
-- **Software fuera de apt** (opencode, nvm…): el sistema lo reconoce y lo explica, pero no puede instalarlo.
-  Haría falta un mecanismo de recetas aprobadas en la política.
+  comprueba (C1); el de verificación sigue en el backlog, y se cierra junto con el transporte por
+  `qemu-guest-agent`, no antes.
+- **Recetas para binarios fuera de apt.** Los snaps y los repositorios oficiales ya están soportados; queda
+  GitHub: un asset de release es un binario opaco como root, sin `dpkg` que lo respalde, y exige fijar tag,
+  asset y sha256 por entrada. Falta decidir cómo se revisa.
 - **Las dependencias de un paquete agregado no se enumeran.** Permitir `nodejs` permite todo su árbol de
   dependencias; Launchpad no lo da. La confirmación lo dice, pero no lo muestra.
 - **Los servicios no se pueden ampliar.** Solo los paquetes: habilitar una unidad arbitraria es más riesgoso
   que instalar un paquete. Un paquete agregado que necesite un servicio habilitado a mano no lo tendrá.
 - **El modelo real no se ha probado en la traducción de nombres** (`nl/suggest.py`). Con un modelo simulado y
   el archivo real funciona (`node` → `nodejs`); falta ver cómo responde `deepseek-v4.1-flash-1017`.
+- **La medición del intérprete sigue pendiente (F5).** El endpoint responde, pero la credencial de este
+  entorno es rechazada por `/v1/chat/completions` con `401 invalid_api_key`; `/v1/models` es público, así
+  que no prueba nada. Sin una clave válida no hay métricas que comparar.
 - **`multiverse` y `restricted` quedan fuera** a propósito: software no libre o sin soporte.
 - **El CLI no exporta a una carpeta** al crear (existe `download`); es una diferencia de presentación, no de
   control.
@@ -423,3 +489,14 @@ Además aparecieron dos hallazgos nuevos, ya corregidos:
   PID queda trabado tras un cierre brusco.
 - **El preflight corre antes del modelo.** Un entorno roto no debe costar tokens.
 - **Longitud de nombre 64, no 63.** Es la regla del CLI, que ya era pública; el menú se alineó con ella.
+- **El repositorio no es un campo del spec; es un detalle del paquete.** El modelo no gana una superficie nueva
+  para elegir un origen: nombra `docker-ce` y la política decide que viene del repositorio de Docker. Fue la
+  razón de mantener `snaps` como el único campo nuevo.
+- **La clave de un repositorio es confianza root y por eso no se amplía desde la máquina.** Un paquete aprobado
+  con `allow add` se instala y arrastra sus dependencias; una clave de tercero, además, firma **todo** lo que apt
+  instale desde ese origen en el futuro. La lista de repositorios solo cambia por PR revisado.
+- **Clave blindada (`.asc`) con `Signed-By`, sin `gpg --dearmor`.** Una pieza menos en la imagen y la clave
+  verificada antes de que apt la vea.
+- **La revisión del snap se fija, no el canal.** `stable` es un puntero móvil: con él, dos builds del mismo spec
+  pueden instalar payloads distintos y el manifiesto solo puede decir "stable". Con `=<revisión>` el manifiesto
+  afirma lo que de verdad se instaló.

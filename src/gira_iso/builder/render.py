@@ -296,7 +296,13 @@ def render(
 
     assert_script = render_text(
         "scripts/assert.sh.j2",
-        {"packages": packages, "services": services, "snaps": list(spec.snaps)},
+        {
+            "packages": packages,
+            "services": services,
+            "snaps": [
+                {"name": name, "revision": allowlist.snaps[name].revision} for name in spec.snaps
+            ],
+        },
     )
     cleanup_script = render_text("scripts/cleanup.sh.j2", {})
     finalize_script = render_text("scripts/finalize.sh.j2", finalize_context())

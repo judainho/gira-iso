@@ -31,6 +31,7 @@ from gira_iso.builder.render import (
     render,
     repository_packages,
     required_repositories,
+    snap_install_commands,
 )
 from gira_iso.policy.evaluate import Allowlist, evaluate, load_allowlist
 from gira_iso.spec.models import Spec
@@ -243,6 +244,20 @@ def test_assert_script_checks_snaps(tmp_path: Path) -> None:
     assert "'docker'" in script
 
 
+def test_the_assert_script_checks_the_pinned_revision(tmp_path: Path) -> None:
+    render(build_spec(snaps=["docker"]), tmp_path, load_allowlist(), KEY)
+    script = (tmp_path / "provision" / "assert.sh").read_text(encoding="utf-8")
+
+    assert "WRONG snap revision" in script
+    assert "'3618'" in script
+
+
+def test_a_pinned_snap_is_installed_by_revision_not_by_channel() -> None:
+    commands = snap_install_commands(build_spec(snaps=["docker"]), load_allowlist())
+
+    assert commands == ["snap install docker=3618 --classic"]
+
+
 # --- manifest ----------------------------------------------------------------
 
 
@@ -301,6 +316,14 @@ def test_goss_asserts_each_snap_is_installed() -> None:
     document = build_goss(build_spec(snaps=["docker"]), ["nginx"])
     assert document["command"]["snap-docker"]["exit-status"] == 0
     assert "snap list docker" in document["command"]["snap-docker"]["exec"]
+
+
+def test_goss_asserts_the_revision_the_manifest_records() -> None:
+    document = build_goss(build_spec(snaps=["docker"]), ["nginx"], snap_revisions={"docker": 3618})
+
+    check = document["command"]["snap-docker-revision"]
+    assert check["exit-status"] == 0
+    assert "= 3618" in check["exec"]
 
 
 # --- hardening raised by the review ------------------------------------------
@@ -463,7 +486,7 @@ def test_a_build_with_snaps_and_a_repository_records_its_provenance(tmp_path, mo
 
     manifest = json.loads(result.manifest.read_text(encoding="utf-8"))
     assert manifest["snaps"] == [
-        {"name": "docker", "channel": "stable", "classic": True, "revision": None}
+        {"name": "docker", "channel": "stable", "classic": True, "revision": 3618}
     ]
     assert manifest["repositories"] == [
         {

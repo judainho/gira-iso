@@ -211,7 +211,9 @@ de cero, con diagnóstico legible, en una imagen a la que le falta algo del mani
 6. Comparación con un modelo de línea base sobre el mismo dataset.
 
 **Hito verificable:** el dataset y el arnés producen una tabla de métricas reproducible para dos
-modelos. *(código cerrado; medición pendiente de endpoint)*
+modelos. *(código cerrado; medición pendiente de una credencial válida: el endpoint responde y
+`/v1/models` es público, pero `/v1/chat/completions` rechaza la clave de este entorno con
+`401 invalid_api_key`)*
 
 **Retira el riesgo:** "no sabemos si un modelo barato alcanza".
 
@@ -613,3 +615,22 @@ Balance de las cuatro fases: de 370 a 532 tests, ocho módulos nuevos (`addition
 mínimo y compatible (`policy.local_additions` opcional en el manifest). Pendiente: probar la traducción
 de nombres con el modelo real.
 
+
+**2026-11-01 — Snaps y repositorios oficiales (extensión posterior a F6): el spec deja de ser solo apt.**
+`snaps` es el único campo nuevo (lista de nombres; un spec `"0"` que lo traiga se rechaza y `spec_version`
+acepta `"0"` y `"1"`). La lista empaquetada gana `snaps` (canal, `classic`, revisión opcional) y
+`repositories` (URL, suite, componentes, `key_url`, `key_sha256`), y un paquete puede declararse como
+`{name, repository}`. Un paquete de repositorio **nunca** viaja en `packages:` de cloud-init: un provisioner
+espera a cloud-init, descarga la clave, la compara con el sha256 fijado, la deja como
+`/usr/share/keyrings/<id>.asc` con `Signed-By` y solo entonces ejecuta apt. El manifiesto registra canal,
+confinamiento y revisión de cada snap y URL, suite, componentes y hash de cada repositorio. `policy`,
+`check`, el resumen de la revisión, `allow list` y la opción 5 del menú muestran la superficie nueva.
+Revisión de cuatro lentes (riesgo alto): el refuter corroboró un hallazgo **crítico** —el provisioner
+ejecutaba apt antes de que cloud-init terminara y competía por el candado de dpkg—, corregido con espera y
+prueba de regresión; trece de las catorce advertencias se cerraron en el mismo cambio y la restante (fijar la
+revisión de los snaps) quedó en `backlog.md` hasta tener números reales. Verificación independiente: S1–S8 y
+S10 cumplidos por ejecución; S9 se completó después y el recheck destapó una regresión propia (describir
+repositorios antes del veredicto abortaba `check` en una base sin release conocido), corregida y probada.
+586 tests en verde, `ruff check` y `ruff format --check` limpios. Detalle y bitácora completa en
+`odd/tasks/snaps-and-repositories.md`. Sigue abierto: medir F5 con una credencial válida y probar la subida a
+OpenStack contra una nube real.
