@@ -46,9 +46,7 @@ def load_spec(path: Path) -> Spec:
         raise typer.Exit(EXIT_INVALID) from None
 
 
-def summarise(
-    spec: Spec, *, allowlist: Allowlist | None = None, err: bool = False
-) -> None:
+def summarise(spec: Spec, *, allowlist: Allowlist | None = None, err: bool = False) -> None:
     typer.echo(f"  base      {spec.base.os} {spec.base.version}, disk {spec.disk_size}", err=err)
     content = f"{len(spec.packages)} package(s)"
     if spec.snaps:

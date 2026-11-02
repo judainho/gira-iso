@@ -157,9 +157,7 @@ class Spec(BaseModel):
     @model_validator(mode="after")
     def _no_duplicates_and_bounded_content(self) -> Spec:
         if self.spec_version == "0" and self.snaps:
-            raise ValueError(
-                "spec_version '0' does not define snaps; use spec_version '1'"
-            )
+            raise ValueError("spec_version '0' does not define snaps; use spec_version '1'")
 
         duplicates = sorted({item for item in self.packages if self.packages.count(item) > 1})
         if duplicates:

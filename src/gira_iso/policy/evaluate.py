@@ -156,9 +156,7 @@ def _snap_entries(raw: Any) -> dict[str, SnapPolicy]:
     snaps: dict[str, SnapPolicy] = {}
     for name, settings in raw.items():
         if not SNAP_NAME.match(str(name)):
-            raise ValueError(
-                f"snap {name!r}: name must be lowercase letters, digits and hyphens"
-            )
+            raise ValueError(f"snap {name!r}: name must be lowercase letters, digits and hyphens")
         settings = settings or {}
         channel = str(settings.get("channel", "stable"))
         if channel not in SNAP_CHANNELS:

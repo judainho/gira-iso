@@ -195,9 +195,7 @@ def effective_services(spec: Spec) -> list[str]:
     return sorted(set(spec.services.enable))
 
 
-def cloud_init(
-    spec: Spec, build_authorized_key: str, allowlist: Allowlist
-) -> tuple[str, str]:
+def cloud_init(spec: Spec, build_authorized_key: str, allowlist: Allowlist) -> tuple[str, str]:
     """Return (user-data, meta-data) for the build VM's NoCloud seed."""
     users: list[dict[str, Any]] = [
         {
