@@ -15,13 +15,19 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from gira_iso.builder.manifest import Manifest, file_sha256
-from gira_iso.errors import EXIT_INVALID, GiraError
+from gira_iso.errors import EXIT_ENVIRONMENT, EXIT_INVALID, GiraError
 
 VALID_FORMATS = ("qcow2", "raw")
 
 
 class PushError(GiraError):
     exit_code = EXIT_INVALID
+
+
+class PushDependencyError(GiraError):
+    """The optional SDK the upload needs is not installed: an environment problem, not bad input."""
+
+    exit_code = EXIT_ENVIRONMENT
 
 
 class ImageApi(Protocol):
@@ -70,7 +76,9 @@ def resolve_connection(cloud: str | None) -> Connection:
     try:
         import openstack  # noqa: PLC0415 - optional dependency, imported on demand
     except ImportError as exc:  # pragma: no cover - depends on the environment
-        raise PushError("openstacksdk is not installed: pip install 'gira-iso[openstack]'") from exc
+        raise PushDependencyError(
+            "openstacksdk is not installed: pip install 'gira-iso[openstack]'"
+        ) from exc
     return openstack.connect(cloud=cloud)
 
 

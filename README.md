@@ -82,7 +82,8 @@ gira-iso show web --json | jq .base
 
 Exit codes: `0` success, `1` the policy or the verification rejected something (or the model
 needs more detail), `2` invalid input, `3` the environment cannot do it (Packer, QEMU, the base
-image download), `130` interrupted with `Ctrl+C`.
+image download, an optional dependency such as `openstacksdk` for `push`), `130` interrupted with
+`Ctrl+C`.
 
 ## Extending the allowlist
 

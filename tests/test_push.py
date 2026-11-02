@@ -7,14 +7,20 @@ import json
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
 from gira_iso.builder.manifest import Manifest
+from gira_iso.cli import app
 from gira_iso.push.openstack import (
+    PushDependencyError,
     PushError,
     image_name,
     image_properties,
+    resolve_connection,
     upload_image,
 )
+
+runner = CliRunner()
 
 
 class FakeImages:
@@ -120,3 +126,42 @@ def test_missing_image_file_is_an_error(tmp_path: Path) -> None:
     (tmp_path / "image" / "gira-iso-ubuntu-24.04.qcow2").unlink()
     with pytest.raises(PushError, match="does not exist"):
         upload_image(manifest_path, connection=FakeConnection())
+
+
+def test_a_missing_sdk_is_an_environment_problem(monkeypatch: pytest.MonkeyPatch) -> None:
+    import builtins
+
+    real_import = builtins.__import__
+
+    def refuse(name: str, *args: object, **kwargs: object):
+        if name == "openstack":
+            raise ImportError("no module named openstack")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", refuse)
+
+    with pytest.raises(PushDependencyError, match="openstacksdk is not installed") as caught:
+        resolve_connection(None)
+
+    assert caught.value.exit_code == 3
+
+
+def test_the_cli_exits_three_when_the_sdk_is_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import builtins
+
+    real_import = builtins.__import__
+
+    def refuse(name: str, *args: object, **kwargs: object):
+        if name == "openstack":
+            raise ImportError("no module named openstack")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", refuse)
+
+    result = runner.invoke(app, ["push", str(_build(tmp_path))])
+
+    assert result.exit_code == 3, result.output
+    assert "error:" in result.output
+    assert "Traceback" not in result.output
