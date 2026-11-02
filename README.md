@@ -55,6 +55,7 @@ gira-iso show web                                      # provenance recorded for
 gira-iso download web --to ~/Downloads                 # copies image + manifest, checksum verified
 gira-iso delete web                                    # asks first; --yes to skip
 gira-iso clean                                         # delete builds that never finished
+gira-iso clean --bases                                 # delete cached base images no manifest needs
 ```
 
 `create` runs the schema and policy checks before downloading or building anything, so a
