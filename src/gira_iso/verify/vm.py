@@ -219,9 +219,7 @@ class VirtualMachine:
 
     def stop(self) -> None:
         """Power the guest off, however the run ended."""
-        if self._process is None:
-            return
-        if self._process.poll() is None:
+        if self._process is not None and self._process.poll() is None:
             agent = getattr(self, "agent", None)
             if agent is not None:
                 agent.shutdown()
@@ -233,4 +231,10 @@ class VirtualMachine:
                 # the failure that triggered the stop.
                 with contextlib.suppress(subprocess.TimeoutExpired):
                     self._process.wait(timeout=10)
+        # The socket is a dead file once qemu is gone, and a stale one next to the evidence would
+        # look like a guest still listening.
+        socket_path = getattr(getattr(self, "agent", None), "socket_path", None)
+        if socket_path is not None:
+            with contextlib.suppress(OSError):
+                Path(socket_path).unlink(missing_ok=True)
         self._process = None

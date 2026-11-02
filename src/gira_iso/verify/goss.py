@@ -64,10 +64,11 @@ def _sudo_audit(spec: Spec) -> str:
     return (
         "set -eu; "
         f"allowed='{allowed}'; "
-        "for user in $(awk -F: "
-        "'$3 >= 1000 && $7 !~ /(nologin|false)$/ {print $1}' /etc/passwd); do "
+        # Every account with a real shell, system accounts included: a shell is what makes an
+        # account usable, and root plus the spec's own sudo users are exempt by name.
+        "for user in $(awk -F: '$7 !~ /(nologin|false)$/ {print $1}' /etc/passwd); do "
         'case " $allowed " in *" $user "*) continue;; esac; '
-        'if sudo -l -U "$user" 2>/dev/null | grep -q NOPASSWD; then '
+        'if sudo -l -U "$user" 2>/dev/null | grep -qE "NOPASSWD|!authenticate"; then '
         'echo "passwordless sudo: $user" >&2; exit 1; fi; '
         "done"
     )

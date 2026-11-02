@@ -74,3 +74,17 @@ Branch: `feat/guest-agent-transport`. Test runner: `uv run pytest`, `uv run ruff
   `no-build-user-sudo` and the new audit, which is the correct verdict about an obsolete image — the
   new assertion caught a passwordless sudo account left by an old build. A fresh build passes; the
   old artifact stays out of the evidence.
+- **L9** — Independent verifier (read-only, scratch copy): **no blockers**; S1–S7 and S9 met by execution.
+  Seven advisories, five fixed here: the audit skipped system accounts with a shell (now it scans every
+  account with a real shell, root and the spec's sudo users excepted), it missed `Defaults !authenticate`
+  (now matches `NOPASSWD|!authenticate`), a short `guest-file-write` was silently accepted (now an error),
+  a non-object agent reply escaped as `AttributeError` through `stop()` (now `GuestAgentError`), and the
+  dead `qga.sock` stayed next to the evidence (now removed on stop). Left as they are: `ping` inherits
+  the 120 s agent timeout, and the *build* transport still uses `ssh`/`ssh-keygen` (A7) — the spec says
+  "the verifier", and that is what changed.
+- **L10** — The verifier's last point was that the tests asserted the audit's text, not its behaviour.
+  Six tests now execute the rendered command against a synthetic `/etc/passwd` and a `sudo` shim, plus
+  three for the client (handle `0`, short write, timeout, non-object reply) and one for the console tail.
+  Mutation check: neutering the audit (`:;`) makes three of them fail; restoring it makes them pass.
+- **L11** — Final evidence on the same fresh build (`20261102T031605Z-a039e09cb2da`): 623 tests, ruff
+  clean, `24 assertions passed` and no surviving QEMU process or socket.

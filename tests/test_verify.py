@@ -185,3 +185,62 @@ def test_a_user_the_spec_declares_with_sudo_is_exempt_from_the_audit() -> None:
     command = build_goss(spec, [])["command"]["no-passwordless-sudo-beyond-the-spec"]["exec"]
 
     assert "allowed='deploy root'" in command
+
+
+def _run_audit(tmp_path: Path, passwd_text: str, sudo_output: str, sudo_status: int) -> int:
+    """Execute the rendered audit against a synthetic passwd and a sudo shim."""
+    import subprocess
+
+    command = build_goss(build_spec(users=[]), [])["command"][
+        "no-passwordless-sudo-beyond-the-spec"
+    ]["exec"]
+    passwd = tmp_path / "passwd"
+    passwd.write_text(passwd_text, encoding="utf-8")
+    shim = tmp_path / "bin"
+    shim.mkdir()
+    sudo = shim / "sudo"
+    sudo.write_text(f"#!/bin/sh\nprintf '%s\\n' {sudo_output!r}\nexit {sudo_status}\n")
+    sudo.chmod(0o755)
+
+    return subprocess.run(
+        ["sh", "-c", command.replace("/etc/passwd", str(passwd))],
+        capture_output=True,
+        text=True,
+        env={"PATH": f"{shim}:/usr/bin:/bin"},
+    ).returncode
+
+
+def test_the_audit_fails_on_a_passwordless_account(tmp_path: Path) -> None:
+    passwd = "root:x:0:0:root:/root:/bin/bash\nmallory:x:1500:1500::/home/mallory:/bin/bash\n"
+
+    assert _run_audit(tmp_path, passwd, "(ALL : ALL) NOPASSWD: ALL", 0) == 1
+
+
+def test_the_audit_passes_a_password_guarded_account(tmp_path: Path) -> None:
+    passwd = "mallory:x:1500:1500::/home/mallory:/bin/bash\n"
+
+    assert _run_audit(tmp_path, passwd, "(ALL : ALL) ALL", 0) == 0
+
+
+def test_the_audit_passes_an_account_without_sudo(tmp_path: Path) -> None:
+    passwd = "mallory:x:1500:1500::/home/mallory:/bin/bash\n"
+
+    assert _run_audit(tmp_path, passwd, "not allowed to run sudo", 1) == 0
+
+
+def test_the_audit_skips_an_account_without_a_real_shell(tmp_path: Path) -> None:
+    passwd = "service:x:1500:1500::/home/service:/usr/sbin/nologin\n"
+
+    assert _run_audit(tmp_path, passwd, "(ALL : ALL) NOPASSWD: ALL", 0) == 0
+
+
+def test_the_audit_catches_a_system_account_with_a_shell(tmp_path: Path) -> None:
+    passwd = "sysop:x:999:999::/home/sysop:/bin/bash\n"
+
+    assert _run_audit(tmp_path, passwd, "(ALL : ALL) NOPASSWD: ALL", 0) == 1
+
+
+def test_the_audit_catches_passwordless_sudo_without_the_literal_token(tmp_path: Path) -> None:
+    passwd = "mallory:x:1500:1500::/home/mallory:/bin/bash\n"
+
+    assert _run_audit(tmp_path, passwd, "Defaults !authenticate", 0) == 1

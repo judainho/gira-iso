@@ -61,6 +61,9 @@ class FakeAgent:
                 reply = self.replies.pop(0) if self.replies else {"return": {}}
                 if reply.get("__close__"):
                     continue
+                if "__raw__" in reply:
+                    connection.sendall(reply["__raw__"].encode("utf-8") + b"\n")
+                    continue
                 connection.sendall(json.dumps(reply).encode("utf-8") + b"\n")
 
 
@@ -127,7 +130,11 @@ def test_upload_sends_the_file_in_chunks_and_closes_the_handle(tmp_path: Path) -
 
     with FakeAgent(tmp_path / "qga.sock") as fake:
         fake.replies.append({"return": 5})  # guest-file-open answers with a bare handle
-        fake.replies += [{"return": {"count": len(payload)}} for _ in range(3)]
+        fake.replies += [
+            {"return": {"count": CHUNK_BYTES}},
+            {"return": {"count": CHUNK_BYTES}},
+            {"return": {"count": len(payload) - 2 * CHUNK_BYTES}},
+        ]
 
         _agent(tmp_path).upload(source, "/tmp/goss")
 
@@ -169,3 +176,43 @@ def test_shutdown_tolerates_a_channel_that_dies(tmp_path: Path) -> None:
 
 def _b64(text: str) -> str:
     return base64.b64encode(text.encode("utf-8")).decode("ascii")
+
+
+def test_a_zero_handle_is_a_valid_file_handle(tmp_path: Path) -> None:
+    source = tmp_path / "small"
+    source.write_bytes(b"abc")
+
+    with FakeAgent(tmp_path / "qga.sock") as fake:
+        fake.replies += [{"return": 0}, {"return": {"count": 3}}]
+
+        _agent(tmp_path).upload(source, "/tmp/small")
+
+    assert fake.requests[-1] == {"execute": "guest-file-close", "arguments": {"handle": 0}}
+
+
+def test_a_short_write_is_an_error_not_a_truncated_file(tmp_path: Path) -> None:
+    source = tmp_path / "small"
+    source.write_bytes(b"abcdef")
+
+    with FakeAgent(tmp_path / "qga.sock") as fake:
+        fake.replies += [{"return": 1}, {"return": {"count": 2}}]
+
+        with pytest.raises(GuestAgentError, match="wrote 2 of 6 bytes"):
+            _agent(tmp_path).upload(source, "/tmp/small")
+
+
+def test_run_gives_up_instead_of_polling_forever(tmp_path: Path) -> None:
+    with FakeAgent(tmp_path / "qga.sock") as fake:
+        fake.replies.append({"return": {"pid": 1}})
+        fake.replies += [{"return": {"exited": False}} for _ in range(200)]
+
+        with pytest.raises(GuestAgentError, match="timed out after 1s"):
+            _agent(tmp_path).run("sleep 999", timeout=1)
+
+
+def test_a_reply_that_is_not_an_object_is_refused(tmp_path: Path) -> None:
+    with FakeAgent(tmp_path / "qga.sock") as fake:
+        fake.replies.append({"__raw__": "[1, 2]"})
+
+        with pytest.raises(GuestAgentError, match="unexpected guest-exec reply"):
+            _agent(tmp_path).run("true")

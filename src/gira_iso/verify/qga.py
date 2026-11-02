@@ -60,6 +60,10 @@ class GuestAgent:
             message = json.loads(raw.decode("utf-8", errors="replace"))
         except json.JSONDecodeError:
             raise GuestAgentError(f"the guest agent sent unreadable {execute} output") from None
+        if not isinstance(message, dict):
+            # Everything the agent sends is an object. Anything else is not a reply we understand,
+            # and it must not escape as an AttributeError from the caller's cleanup path.
+            raise GuestAgentError(f"the guest agent sent an unexpected {execute} reply")
         if "error" in message:
             error = message["error"] or {}
             raise GuestAgentError(
@@ -115,13 +119,18 @@ class GuestAgent:
                     block = source.read(CHUNK_BYTES)
                     if not block:
                         break
-                    self._exchange(
+                    written = self._exchange(
                         "guest-file-write",
                         {
                             "handle": handle,
                             "buf-b64": base64.b64encode(block).decode("ascii"),
                         },
                     )
+                    count = written.get("count") if isinstance(written, dict) else None
+                    if count is not None and count != len(block):
+                        raise GuestAgentError(
+                            f"the guest agent wrote {count} of {len(block)} bytes to {remote}"
+                        )
         finally:
             # Closing is best effort and must not mask the original failure.
             with contextlib.suppress(GuestAgentError):

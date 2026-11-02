@@ -238,3 +238,41 @@ def test_stopping_kills_a_guest_that_ignores_the_shutdown(tmp_path: Path) -> Non
 
     assert guest.killed
     assert machine._process is None
+
+
+def test_stopping_removes_the_dead_agent_socket(tmp_path: Path) -> None:
+    from gira_iso.verify.qga import GuestAgent
+
+    machine = VirtualMachine(image=tmp_path / "image.qcow2", workdir=tmp_path / "run")
+    machine.workdir.mkdir()
+    socket_path = machine.workdir / "qga.sock"
+    socket_path.write_text("", encoding="utf-8")
+    machine.agent = GuestAgent(socket_path)
+
+    machine.stop()
+
+    assert not socket_path.exists()
+
+
+def test_a_boot_failure_still_carries_the_console_tail(tmp_path: Path) -> None:
+    from gira_iso.verify.vm import VmError
+
+    machine = VirtualMachine(image=tmp_path / "image.qcow2", workdir=tmp_path / "run")
+    machine.workdir.mkdir(parents=True, exist_ok=True)
+    machine.console = machine.workdir / "console.log"
+    machine.console.write_text(
+        "\n".join(f"line{number}" for number in range(40)) + "\n", encoding="utf-8"
+    )
+
+    class Dead:
+        def poll(self) -> int:
+            return 1
+
+    machine._process = Dead()
+
+    with pytest.raises(VmError) as caught:
+        machine._wait_for_agent()
+
+    message = str(caught.value)
+    assert "qemu exited before the guest agent answered" in message
+    assert "line39" in message
