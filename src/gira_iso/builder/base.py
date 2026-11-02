@@ -28,6 +28,33 @@ def cache_dir() -> Path:
     return Path.home() / ".cache" / "gira-iso" / "images"
 
 
+def cached_images() -> list[Path]:
+    """Every regular file sitting in the cache, partial downloads included."""
+    folder = cache_dir()
+    if not folder.is_dir():
+        return []
+    return sorted(
+        (child for child in folder.iterdir() if child.is_file() and not child.is_symlink()),
+        key=lambda child: child.name,
+    )
+
+
+def referenced_images(work_root: Path) -> set[str]:
+    """File names of the cached bases that a manifest under `work_root` still points at."""
+    from gira_iso.builder.manifest import Manifest  # local: keeps the import graph acyclic
+
+    names: set[str] = set()
+    if not work_root.is_dir():
+        return names
+    for manifest_path in sorted(work_root.glob("*/manifest.json")):
+        try:
+            manifest = Manifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        names.add(Path(manifest.base.url).name)
+    return names
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:

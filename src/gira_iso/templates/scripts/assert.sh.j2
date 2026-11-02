@@ -17,8 +17,13 @@ systemctl is-enabled '{{ svc }}' >/dev/null 2>&1 \
 {% endfor %}
 
 {% for snap in snaps %}
-snap list '{{ snap }}' 2>/dev/null | grep -q '^{{ snap }} ' \
-  || { echo "MISSING snap: {{ snap }}" >&2; exit 1; }
+snap list '{{ snap.name }}' 2>/dev/null | grep -q '^{{ snap.name }} ' \
+  || { echo "MISSING snap: {{ snap.name }}" >&2; exit 1; }
+{% if snap.revision %}
+# The revision is pinned in the policy: a channel drift must fail the build, not the manifest.
+test "$(snap list '{{ snap.name }}' | awk 'NR==2 {print $3}')" = '{{ snap.revision }}' \
+  || { echo "WRONG snap revision: {{ snap.name }} (expected {{ snap.revision }})" >&2; exit 1; }
+{% endif %}
 {% endfor %}
 
 echo "assertions passed: {{ packages | length }} package(s), {{ services | length }} service(s), {{ snaps | length }} snap(s)"

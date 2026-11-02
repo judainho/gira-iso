@@ -109,7 +109,10 @@ def verify_build(
     spec = Spec.model_validate(manifest.spec)
     goss_spec = build_dir / "verify" / "goss.yaml"
     goss_spec.parent.mkdir(parents=True, exist_ok=True)
-    goss_spec.write_text(to_yaml(spec, manifest.packages), encoding="utf-8")
+    revisions = {snap.name: snap.revision for snap in manifest.snaps if snap.revision is not None}
+    goss_spec.write_text(
+        to_yaml(spec, manifest.packages, snap_revisions=revisions), encoding="utf-8"
+    )
 
     run_dir = workdir or (build_dir / "verify")
     goss_output = ""

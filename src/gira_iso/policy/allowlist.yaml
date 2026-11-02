@@ -105,9 +105,13 @@ snaps:
   docker:
     channel: stable
     classic: true
+    # Pinned exactly: `stable` is a moving pointer, so the manifest could not claim
+    # what was installed. Bumping this number is a reviewed change (see backlog.md).
+    revision: 3618
   certbot:
     channel: stable
     classic: true
+    revision: 5911
 
 # Services the spec may start or stop.
 services:

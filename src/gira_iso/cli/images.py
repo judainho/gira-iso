@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 
 from gira_iso.bases import builds_dir
+from gira_iso.builder.base import cached_images, referenced_images
 from gira_iso.builder.catalog import (
     directory_size,
     display_name,
@@ -138,10 +139,16 @@ def delete(
 @guarded
 def clean(
     work_root: Path = typer.Option(None, "--work-root", help=WORK_ROOT_HELP),
+    bases: bool = typer.Option(
+        False, "--bases", help="Clean the cached official base images instead of the builds"
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask for confirmation"),
 ) -> None:
-    """Delete builds that never finished: failed, cancelled or killed."""
+    """Delete builds that never finished, or cached base images with --bases."""
     root = work_root or builds_dir()
+    if bases:
+        _clean_bases(root, yes=yes)
+        return
     incomplete = find_incomplete(root)
     if not incomplete:
         typer.echo("nothing to clean")
@@ -158,3 +165,33 @@ def clean(
     removed = remove_incomplete(root)
     freed = sum(size for _, size in removed)
     typer.echo(f"  removed   {len(removed)} build(s), {freed / 1024**2:.0f} MB freed")
+
+
+def _clean_bases(root: Path, *, yes: bool) -> None:
+    """Delete cached base images that no manifest under `root` still points at."""
+    cached = cached_images()
+    keep = referenced_images(root)
+    removable = [path for path in cached if path.name not in keep]
+    if not removable:
+        typer.echo("nothing to clean in the base cache")
+        return
+    total = 0
+    for path in removable:
+        size = path.stat().st_size
+        total += size
+        typer.echo(f"  {path.name}  {size / 1024**2:.0f} MB")
+    if not yes and not typer.confirm(
+        f"delete {len(removable)} cached base image(s) ({total / 1024**2:.0f} MB)?"
+    ):
+        raise typer.Exit(EXIT_OK)
+    removed = 0
+    freed = 0
+    for path in removable:
+        try:
+            size = path.stat().st_size
+            path.unlink()
+        except OSError:
+            continue
+        removed += 1
+        freed += size
+    typer.echo(f"  removed   {removed} base image(s), {freed / 1024**2:.0f} MB freed")

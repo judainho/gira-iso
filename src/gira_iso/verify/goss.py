@@ -54,7 +54,7 @@ def _file_checks(spec: Spec) -> dict[str, Any]:
     return files
 
 
-def _command_checks(spec: Spec) -> dict[str, Any]:
+def _command_checks(spec: Spec, snap_revisions: dict[str, int] | None = None) -> dict[str, Any]:
     commands: dict[str, Any] = {
         "cloud-init-finished": {
             "exec": "cloud-init status",
@@ -81,10 +81,19 @@ def _command_checks(spec: Spec) -> dict[str, Any]:
             "exit-status": 0,
             "stdout": [snap],
         }
+        revision = (snap_revisions or {}).get(snap)
+        if revision is not None:
+            # `snap list` columns are NAME VERSION REV TRACKING ...; the revision is the third.
+            commands[f"snap-{snap}-revision"] = {
+                "exec": f"test \"$(snap list {snap} | awk 'NR==2 {{print $3}}')\" = {revision}",
+                "exit-status": 0,
+            }
     return commands
 
 
-def build_goss(spec: Spec, packages: list[str]) -> dict[str, Any]:
+def build_goss(
+    spec: Spec, packages: list[str], *, snap_revisions: dict[str, int] | None = None
+) -> dict[str, Any]:
     """Return the goss document as a plain dict, ready to serialise to YAML."""
     document: dict[str, Any] = {}
 
@@ -103,12 +112,18 @@ def build_goss(spec: Spec, packages: list[str]) -> dict[str, Any]:
     if files:
         document["file"] = files
 
-    commands = _command_checks(spec)
+    commands = _command_checks(spec, snap_revisions)
     if commands:
         document["command"] = commands
 
     return document
 
 
-def to_yaml(spec: Spec, packages: list[str]) -> str:
-    return yaml.safe_dump(build_goss(spec, packages), sort_keys=True, width=1_000_000)
+def to_yaml(
+    spec: Spec, packages: list[str], *, snap_revisions: dict[str, int] | None = None
+) -> str:
+    return yaml.safe_dump(
+        build_goss(spec, packages, snap_revisions=snap_revisions),
+        sort_keys=True,
+        width=1_000_000,
+    )
