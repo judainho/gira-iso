@@ -156,3 +156,32 @@ def test_goss_summary_parser_reports_success() -> None:
     )
     assert passed is True
     assert detail == "7 assertions passed"
+
+
+def test_the_verification_seed_creates_no_user_and_no_sudo() -> None:
+    from gira_iso.verify.vm import seed_user_data
+
+    text = seed_user_data()
+
+    assert "hostname: gira-iso-verify" in text
+    assert "users: []" in text
+    assert "sudo" not in text
+    assert "ssh_authorized_keys" not in text
+
+
+def test_goss_audits_passwordless_sudo_beyond_the_spec() -> None:
+    command = build_goss(build_spec(users=[]), [])["command"][
+        "no-passwordless-sudo-beyond-the-spec"
+    ]["exec"]
+
+    assert "allowed='root'" in command
+    assert "NOPASSWD" in command
+    assert "superuser" not in command
+
+
+def test_a_user_the_spec_declares_with_sudo_is_exempt_from_the_audit() -> None:
+    spec = build_spec(users=[{"name": "deploy", "sudo": True, "ssh_authorized_keys": [VALID_KEY]}])
+
+    command = build_goss(spec, [])["command"]["no-passwordless-sudo-beyond-the-spec"]["exec"]
+
+    assert "allowed='deploy root'" in command

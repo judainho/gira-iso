@@ -54,6 +54,25 @@ def _file_checks(spec: Spec) -> dict[str, Any]:
     return files
 
 
+def _sudo_audit(spec: Spec) -> str:
+    """Fail when an account with a real shell can become root without a password.
+
+    Root and the users the spec declares with `sudo` are expected. Anyone else is not: the
+    verification seed creates no account, so another one came from the image itself.
+    """
+    allowed = " ".join(sorted({"root"} | {user.name for user in spec.users if user.sudo}))
+    return (
+        "set -eu; "
+        f"allowed='{allowed}'; "
+        "for user in $(awk -F: "
+        "'$3 >= 1000 && $7 !~ /(nologin|false)$/ {print $1}' /etc/passwd); do "
+        'case " $allowed " in *" $user "*) continue;; esac; '
+        'if sudo -l -U "$user" 2>/dev/null | grep -q NOPASSWD; then '
+        'echo "passwordless sudo: $user" >&2; exit 1; fi; '
+        "done"
+    )
+
+
 def _command_checks(spec: Spec, snap_revisions: dict[str, int] | None = None) -> dict[str, Any]:
     commands: dict[str, Any] = {
         "cloud-init-finished": {
@@ -63,6 +82,11 @@ def _command_checks(spec: Spec, snap_revisions: dict[str, int] | None = None) ->
         },
         "no-build-user-sudo": {
             "exec": f"! grep -rqsE '^{BUILD_USER}[[:space:]]' /etc/sudoers /etc/sudoers.d",
+            "exit-status": 0,
+        },
+        # The seed adds no user, so this can finally mean "the image has no such account".
+        "no-passwordless-sudo-beyond-the-spec": {
+            "exec": _sudo_audit(spec),
             "exit-status": 0,
         },
     }
