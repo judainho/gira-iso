@@ -98,3 +98,13 @@ the user's call. Test runner: `uv run pytest`, `uv run ruff check .`, `uv run ru
   `tests/test_push_live.py` skips without a cloud and a build (`2 deselected` in the normal suite).
 - **L11** — Replay sanity check: the failed 401 recording replays with exit `1` (score below
   expectation) and no traceback, which is exactly what the CI step tolerates; a replay error exits `2`.
+- **L7** — Delivery. Four pull requests, each merged after a green run:
+  #1 `d9b9ed2` (snaps and vendor repositories, plus the menu test and the formatting the branch owed),
+  #2 `7b11aea` (this document's contract, docs and hardening), #3 `4ef3a3d` (eval scoring fixes) and
+  #4 `1cdad20` (verification over the guest agent, with its own document
+  `odd/tasks/guest-agent-transport.md`). CI runs `41371147365`, `41371997989`, `41380548099`,
+  `41384000570` on the pull requests and `41384063864` on `main` finished green.
+- **L8** — Final state: `623 passed, 2 deselected`, `ruff check` and `ruff format --check` clean,
+  `main` equal to `origin/main`, no unmerged branch. Still open and not code: F5 needs a credential that
+  `/v1/chat/completions` accepts, F7 needs an OpenStack project for the real boot check, and the policy
+  review is an organisational decision.
