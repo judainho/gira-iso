@@ -79,3 +79,22 @@ the user's call. Test runner: `uv run pytest`, `uv run ruff check .`, `uv run ru
 - **L6** — Evidence for the fixes: `uv run pytest` 586 passed, `ruff check` clean,
   `ruff format --check` clean after T1; the menu test drives the base prompt with an empty line and
   expects one box plus one compact line.
+- **L7** — T2/T3 evidence: a bad recording now exits `2` with one `error:` line (four unit tests plus a
+  CLI test); `push` without the SDK exits `3` (two tests, one through the CLI); `uv run pytest`
+  593 passed; `ruff check` and `ruff format --check` clean.
+- **L8** — T4–T9 evidence: the control-flow document gained the trust-table rows, the provisioner
+  section, artifacts, controls S1–S6/C7/C8, decisions, and a corrected "what is not done"; the plan
+  log has the feature entry; the backlog is deduped and its F5 blocker now names the credential
+  problem; README counts 48 entries; `src/vmforge/` is gone and `grep -rn vmforge src tests` is empty;
+  the workflows moved to `checkout@v7.0.1`, `setup-uv@v10.3.3` and `upload-artifact@v7.0.2`.
+- **L9** — T10/T11 evidence: `docker=3618` and `certbot=5911` are pinned; the rendered command is
+  `snap install docker=3618 --classic`; the assertion script fails with `WRONG snap revision` and goss
+  repeats the check from the manifest; `clean --bases` keeps a base a manifest references and deletes
+  the rest plus partials (two tests). `uv run pytest` 598 passed.
+- **L10** — T12–T14 evidence: `check-toolchain.sh` compares the installed plugin binary with
+  `9ff1f335…` and reports PENDING when it is not installed yet; the CI toolchain job installs the
+  plugin and runs the check with `GIRA_ISO_REQUIRE_PLUGIN=1`; the test job replays any committed
+  baseline; `eval/baselines/README.md` documents the format; `docs/openstack.md` is the runbook and
+  `tests/test_push_live.py` skips without a cloud and a build (`2 deselected` in the normal suite).
+- **L11** — Replay sanity check: the failed 401 recording replays with exit `1` (score below
+  expectation) and no traceback, which is exactly what the CI step tolerates; a replay error exits `2`.
