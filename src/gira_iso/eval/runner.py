@@ -222,12 +222,6 @@ def aggregate(results: list[CaseResult], cases: list[Case]) -> dict[str, Any]:
     precision = tp / (tp + fp) if tp + fp else None
     recall = tp / (tp + fn) if tp + fn else None
 
-    kind_counts: dict[str, int] = {}
-    for result in results:
-        kind_counts[result.category] = kind_counts.get(result.category, 0)
-    for category in {case.category for case in cases}:
-        kind_counts.setdefault(category, 0)
-
     def rate(category: str) -> float | None:
         bucket = by_category.get(category)
         return round(bucket["passed"] / bucket["total"], 3) if bucket else None
@@ -244,7 +238,9 @@ def aggregate(results: list[CaseResult], cases: list[Case]) -> dict[str, Any]:
             consistent += 1
 
     attempt_values = [result.attempts for result in results if result.actual_kind not in {"error"}]
-    latencies = [result.latency_ms for result in results if result.latency_ms]
+    # A zero is a measurement the completer reported (a stub, or a cache hit); no sample at all is
+    # "no data". Filtering zeros out conflated the two and made a stub run look unmeasured.
+    latencies = [result.latency_ms for result in results if result.actual_kind not in {"error"}]
 
     return {
         "cases": total,
@@ -263,4 +259,5 @@ def aggregate(results: list[CaseResult], cases: list[Case]) -> dict[str, Any]:
         "out_of_scope_declined": rate("out_of_scope"),
         "language_consistency": (round(consistent / len(pairs), 3) if pairs else None),
         "mean_latency_ms": round(sum(latencies) / len(latencies), 1) if latencies else None,
+        "latency_samples": len(latencies),
     }

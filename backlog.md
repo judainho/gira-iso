@@ -87,12 +87,8 @@ runbook (`clouds.yaml`, nombre en Glance, comprobación manual de arranque).
 
 ## 3. Deuda del arnés de evaluación
 
-- El scoring compara conjuntos por campo, no el contenido de los archivos: dos `files` con el mismo
-  path y contenido distinto puntúan igual.
 - 25 casos detectan regresiones groseras; no permiten afirmar precisión con confianza. Ampliar con
   casos reales antes de comparar modelos.
-- `mean_latency_ms` sale `None` cuando todas las latencias son 0 (stub). Debería distinguir "sin
-  datos" de "cero".
 - El job de CI que repite una grabación con `--replay` está listo, pero no hay grabación comprometida
   todavía: depende de la credencial de 1.1.
 

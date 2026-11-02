@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import VALID_KEY
+from conftest import VALID_KEY, build_spec
 from typer.testing import CliRunner
 
 from gira_iso.cli import app
@@ -248,3 +248,48 @@ def test_the_cli_reports_a_bad_recording_in_one_line(tmp_path: Path) -> None:
     assert result.exit_code == 2
     assert result.output.startswith("error:")
     assert "Traceback" not in result.output
+
+
+def test_two_files_with_the_same_path_and_different_content_do_not_match() -> None:
+    expected = build_spec(files=[{"path": "/etc/motd", "content": "welcome\n", "mode": "0644"}])
+    actual = build_spec(files=[{"path": "/etc/motd", "content": "pwned\n", "mode": "0644"}])
+
+    scores = compare(expected, actual)
+
+    assert scores["files"].tp == 0
+    assert scores["files"].fp == 1
+    assert scores["files"].fn == 1
+
+
+def test_two_files_with_the_same_content_still_match() -> None:
+    files = [{"path": "/etc/motd", "content": "welcome\n", "mode": "0644"}]
+
+    assert compare(build_spec(files=files), build_spec(files=files))["files"].exact
+
+
+def _result(*, actual_kind: str = "spec", latency_ms: int = 0) -> CaseResult:
+    return CaseResult(
+        case_id="one",
+        category="simple",
+        language="es",
+        pair=None,
+        passed=True,
+        expected_kind="spec",
+        actual_kind=actual_kind,
+        detail="",
+        latency_ms=latency_ms,
+    )
+
+
+def test_a_zero_latency_is_a_measurement_not_missing_data() -> None:
+    metrics = aggregate([_result(latency_ms=0)], [])
+
+    assert metrics["mean_latency_ms"] == 0.0
+    assert metrics["latency_samples"] == 1
+
+
+def test_no_sample_at_all_is_reported_as_missing_data() -> None:
+    metrics = aggregate([_result(actual_kind="error")], [])
+
+    assert metrics["mean_latency_ms"] is None
+    assert metrics["latency_samples"] == 0
