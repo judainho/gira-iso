@@ -243,6 +243,11 @@ Reads the manifest, checks the artifact checksum before booting anything, derive
 from the spec and runs it inside a fresh boot with a seed the image has never seen. Exit code is
 `0` only when every assertion passes.
 
+The channel is the QEMU guest agent on a virtio-serial port, not SSH: the agent runs as root inside
+the guest, so the verification seed declares no user at all. That is what lets the run assert
+something about accounts instead of inventing the one it would otherwise need: no user with a real
+shell may have passwordless sudo except the ones the spec declares (and root).
+
 Only what the spec claims is asserted: packages installed, services enabled and running, users
 present with their keys, files present with the declared mode and exact content hash. The spec does
 not declare ports, so no port assertion is invented.

@@ -415,6 +415,7 @@ nunca carpetas ajenas ni enlaces simbólicos.
 | S6 | El snap se instala con la revisión fijada y la aserción del build y goss comprueban `snap list` **y la revisión instalada** | `render.py`, `assert.sh.j2`, `verify/goss.py` | una revisión distinta falla el build: el manifiesto no puede mentir |
 | C7 | `gira-iso clean --bases` borra bases en caché, salvo las que cualquier manifest del área de trabajo referencia | `cli/images.py`, `builder/base.py` | no borra nada |
 | C8 | El binario del plugin de Packer se compara con el sha256 de `toolchain.lock` | `scripts/check-toolchain.sh`, `toolchain.lock` | `check-toolchain` falla y dice qué versión y hash esperaba |
+| C9 | La verificación no crea ninguna cuenta: el seed declara `users: []` y los comandos viajan por el agente QEMU (root dentro del invitado), así que goss puede afirmar que no hay sudo sin contraseña más allá de lo que el spec declara | `verify/vm.py`, `verify/qga.py`, `verify/goss.py` | `no-passwordless-sudo-beyond-the-spec` falla y nombra la cuenta |
 
 ---
 
@@ -441,8 +442,9 @@ Además aparecieron dos hallazgos nuevos, ya corregidos:
   con la imagen abierta.
 - **Tras el primer build real:** la clave de la VM de *verificación* (`verify/id_ed25519`) seguía en disco.
   Abre un usuario que solo existe en el overlay de esa VM, pero era el mismo tipo de residuo que H8 y mi
-  propia comprobación (`ls builds/*/`) no la veía por mirar solo el nivel superior. Ahora
-  `VirtualMachine.stop()` la borra siempre; los logs y la salida de goss se conservan como evidencia.
+  propia comprobación (`ls builds/*/`) no la veía por mirar solo el nivel superior. La primera corrección
+  fue borrarla siempre; la definitiva (2026-11-01) es que ya no existe: el canal es el agente QEMU y el
+  seed no declara ningún usuario. Los logs y la salida de goss se conservan como evidencia.
 
 ---
 
@@ -450,10 +452,10 @@ Además aparecieron dos hallazgos nuevos, ya corregidos:
 
 - **Reintentos y puntos de reanudación.** Un build interrumpido se descarta y se empieza de cero. Reanudar
   exigiría que Packer lo permitiera; no se intentó.
-- **El seed de la verificación crea un usuario con sudo sin contraseña** (el del propio verificador), de modo
-  que la verificación no puede afirmar "esta imagen no tiene cuentas con sudo". El usuario de *build* sí se
-  comprueba (C1); el de verificación sigue en el backlog, y se cierra junto con el transporte por
-  `qemu-guest-agent`, no antes.
+- **La verificación habla con el invitado por el agente QEMU**, no por SSH. El seed no declara usuarios y los
+  comandos se ejecutan como root dentro del invitado (C9), así que `ssh` deja de ser el canal y el spec puede
+  seguir sin poder deshabilitarlo (D1) por la razón original: la imagen debe ser usable, no porque el
+  verificador lo necesite.
 - **Recetas para binarios fuera de apt.** Los snaps y los repositorios oficiales ya están soportados; queda
   GitHub: un asset de release es un binario opaco como root, sin `dpkg` que lo respalde, y exige fijar tag,
   asset y sha256 por entrada. Falta decidir cómo se revisa.
