@@ -45,6 +45,36 @@ check_binary goss \
   "$(awk '/^goss:/{f=1;next} /^[a-z]/{f=0} f' "$LOCK" | grep -E '^  version:' | sed -E 's/.*"([^"]*)".*/\1/')" \
   "$(awk '/^goss:/{f=1;next} /^[a-z]/{f=0} f' "$LOCK" | grep -E '^  sha256:' | sed -E 's/.*"([^"]*)".*/\1/')"
 
+# The qemu plugin is installed by `packer init` during the first build, outside the build
+# directory. When it is there, its bytes are compared with the pin; a machine that never
+# built yet reports PENDING instead of pretending the plugin is fine.
+plugin_field() { section "$LOCK" packer_plugin_qemu | grep -E "^  $1:" | sed -E 's/.*"([^"]*)".*/\1/'; }
+plugin_version="$(plugin_field version)"
+plugin_binary="$(plugin_field binary)"
+plugin_sha="$(plugin_field sha256)"
+plugin_path=""
+if command -v packer >/dev/null 2>&1; then
+  plugin_path="$(packer plugins installed 2>/dev/null | grep -F "/$plugin_binary" | head -1 || true)"
+fi
+if [ -z "$plugin_path" ]; then
+  if [ "${GIRA_ISO_REQUIRE_PLUGIN:-0}" = "1" ]; then
+    printf '  MISSING  %-8s %s (packer plugins install %s %s)\n' \
+      plugin "$plugin_binary" "$(plugin_field source)" "$plugin_version"
+    failures=$((failures + 1))
+  else
+    printf '  PENDING  %-8s installs on the first build; not verified yet\n' plugin
+  fi
+else
+  actual_plugin_sha="$(sha256sum "$plugin_path" | awk '{print $1}')"
+  if [ "$actual_plugin_sha" = "$plugin_sha" ]; then
+    printf '  OK       %-8s %s (%s…)\n' plugin "$plugin_version" "${actual_plugin_sha:0:12}"
+  else
+    printf '  MISMATCH %-8s expected %s %s, got %s\n' \
+      plugin "$plugin_version" "${plugin_sha:0:12}…" "${actual_plugin_sha:0:12}…"
+    failures=$((failures + 1))
+  fi
+fi
+
 if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
   printf '  MISSING  %-8s not in PATH (sudo apt-get install -y qemu-system-x86)\n' qemu
   failures=$((failures + 1))

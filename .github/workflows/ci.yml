@@ -20,6 +20,21 @@ jobs:
           uv run ruff format --check .
       - name: Tests
         run: uv run pytest -q
+      - name: Replay the committed baseline recording
+        run: |
+          shopt -s nullglob
+          recordings=(eval/baselines/*.json)
+          if [ "${#recordings[@]}" -eq 0 ]; then
+            echo "no baseline recording committed yet (see eval/baselines/README.md)"
+            exit 0
+          fi
+          for recording in "${recordings[@]}"; do
+            echo "replaying ${recording}"
+            status=0
+            uv run gira-iso eval --replay "${recording}" || status=$?
+            # 1 means the replayed answers scored below expectation: reported, not imposed.
+            if [ "${status}" -ge 2 ]; then exit "${status}"; fi
+          done
       - name: The shipped example must stay valid
         run: uv run gira-iso check examples/nginx-web.yaml
       - name: The allowlist must ship a pinned base
@@ -43,5 +58,10 @@ jobs:
           curl -fsSL -o /tmp/goss.tgz https://github.com/goss-org/goss/releases/download/v0.4.10/goss_0.4.10_linux_x86_64.tar.gz
           tar xzf /tmp/goss.tgz -C /tmp goss
           install -m 0755 /tmp/goss "$HOME/.local/bin/goss"
+      - name: Install the pinned packer plugin
+        run: packer plugins install github.com/hashicorp/qemu 1.1.7
       - name: Verify the toolchain matches the lock
+        env:
+          # The plugin is installed above, so a missing one is a failure here, not a TODO.
+          GIRA_ISO_REQUIRE_PLUGIN: "1"
         run: ./scripts/check-toolchain.sh
