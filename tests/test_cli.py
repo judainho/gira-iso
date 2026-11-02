@@ -797,9 +797,11 @@ def test_menu_tells_the_model_which_base_was_chosen(monkeypatch, tmp_path: Path)
 def test_the_full_menu_is_drawn_once_then_a_single_line(monkeypatch, tmp_path: Path) -> None:
     _tui_fixture(monkeypatch, tmp_path)
 
-    result = runner.invoke(app, [], input="k\n3\n3\n0\n")
+    # The base list asks for a number now, so the second answer must be an empty line:
+    # otherwise that prompt swallows the next menu choice and the menu never repaints twice.
+    result = runner.invoke(app, [], input="k\n3\n\n0\n")
 
-    assert result.output.count("Listar imágenes existentes") == 3  # 1 box + 2 compact lines
+    assert result.output.count("Listar imágenes existentes") == 2  # 1 box + 1 compact line
     assert result.output.count("┏") >= 1
     assert result.output.count("╭─") <= 3  # banner, menu, nothing repainted per action
 

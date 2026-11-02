@@ -11,16 +11,16 @@ from gira_iso.policy.evaluate import load_allowlist
 from gira_iso.proposals import MAX_PROPOSALS, Proposal, Refusal, assess, precheck
 
 
-def found(name: str = "nodejs", component: str = "universe") -> ArchivePackage:
+def found(name: str = "ripgrep", component: str = "universe") -> ArchivePackage:
     return ArchivePackage(name, "18.19.1", component, "web", "Release")
 
 
 def test_a_published_universe_package_becomes_a_proposal() -> None:
-    result = assess("nodejs", found(), "24.04", load_allowlist())
+    result = assess("ripgrep", found(), "24.04", load_allowlist())
 
     assert isinstance(result, Proposal)
     assert (result.package, result.component, result.base_version, result.version) == (
-        "nodejs",
+        "ripgrep",
         "universe",
         "24.04",
         "18.19.1",
@@ -60,11 +60,11 @@ def test_a_package_that_is_already_allowed_is_not_offered_again() -> None:
 
 def test_a_package_added_for_another_release_is_still_offered_for_this_one() -> None:
     allowlist = dataclasses.replace(
-        load_allowlist(), local_packages={"22.04": frozenset({"nodejs"})}
+        load_allowlist(), local_packages={"22.04": frozenset({"ripgrep"})}
     )
 
-    assert isinstance(assess("nodejs", found(), "24.04", allowlist), Proposal)
-    assert isinstance(assess("nodejs", found(), "22.04", allowlist), Refusal)
+    assert isinstance(assess("ripgrep", found(), "24.04", allowlist), Proposal)
+    assert isinstance(assess("ripgrep", found(), "22.04", allowlist), Refusal)
 
 
 @pytest.mark.parametrize("name", ["", "Bad Name", "-x", "a;rm", "A", "x" * 65, "pkg/other"])
@@ -75,17 +75,17 @@ def test_invalid_names_are_refused_before_anything_else(name: str) -> None:
 
 
 def test_precheck_lets_a_new_valid_name_through_to_the_archive() -> None:
-    assert precheck("nodejs", "24.04", load_allowlist()) is None
+    assert precheck("ripgrep", "24.04", load_allowlist()) is None
 
 
 def test_the_proposal_remembers_the_word_the_person_used() -> None:
-    result = assess("nodejs", found(), "24.04", load_allowlist(), requested_as="node")
+    result = assess("ripgrep", found(), "24.04", load_allowlist(), requested_as="rg")
 
-    assert isinstance(result, Proposal) and result.requested_as == "node"
+    assert isinstance(result, Proposal) and result.requested_as == "rg"
 
 
 def test_a_word_equal_to_the_package_is_not_repeated() -> None:
-    result = assess("nodejs", found(), "24.04", load_allowlist(), requested_as="nodejs")
+    result = assess("ripgrep", found(), "24.04", load_allowlist(), requested_as="ripgrep")
 
     assert isinstance(result, Proposal) and result.requested_as is None
 

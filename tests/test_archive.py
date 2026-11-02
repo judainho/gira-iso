@@ -9,14 +9,9 @@ from typing import Any
 import pytest
 
 from gira_iso import archive
-from gira_iso.archive import (
-    ArchiveUnavailable,
-    UnknownRelease,
-    codename_for,
-    lookup,
-    query_url,
-)
+from gira_iso.archive import ArchiveUnavailable, lookup, query_url
 from gira_iso.errors import EXIT_ENVIRONMENT, EXIT_INVALID
+from gira_iso.releases import UnknownRelease, codename_for
 
 
 def entry(name: str = "nodejs", **extra: Any) -> dict[str, Any]:

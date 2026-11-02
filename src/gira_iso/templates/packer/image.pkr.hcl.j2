@@ -74,6 +74,15 @@ build {
   name    = "gira-iso"
   sources = ["source.qemu.ubuntu"]
 
+{% if has_repositories %}
+  # Vendor repositories must exist before their packages can be installed, and before the
+  # assertions below ask dpkg whether they are present.
+  provisioner "shell" {
+    execute_command = "{% raw %}{{ .Vars }}{% endraw %} sudo -E bash -euxo pipefail '{% raw %}{{ .Path }}{% endraw %}'"
+    script          = "${var.build_dir}/provision/repositories.sh"
+  }
+
+{% endif %}
   # Wait for cloud-init, then assert that the spec is actually in the image.
   # Installing a package and asserting it are two different claims.
   provisioner "shell" {

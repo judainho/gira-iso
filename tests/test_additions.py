@@ -33,15 +33,15 @@ from gira_iso.policy.evaluate import ENV_VAR, allowlist_digest, evaluate, load_a
 from gira_iso.spec.models import Spec
 
 
-def node(base: str = "24.04", **extra) -> Addition:
+def entry(base: str = "24.04", **extra) -> Addition:
     values = dict(
-        package="nodejs",
+        package="ripgrep",
         base_version=base,
         component="universe",
-        version="18.19.1+dfsg-6ubuntu5",
+        version="14.1.0-1",
         added_at="2026-10-26T12:00:00Z",
         request_sha256="a" * 64,
-        note="JavaScript runtime",
+        note="recursive grep",
     )
     return Addition(**{**values, **extra})
 
@@ -68,62 +68,62 @@ def test_nothing_is_added_by_default() -> None:
 
 
 def test_an_addition_is_stored_and_listed() -> None:
-    add_addition(node())
+    add_addition(entry())
 
     assert [(a.package, a.base_version, a.component) for a in list_additions()] == [
-        ("nodejs", "24.04", "universe")
+        ("ripgrep", "24.04", "universe")
     ]
-    assert local_packages_by_base() == {"24.04": frozenset({"nodejs"})}
+    assert local_packages_by_base() == {"24.04": frozenset({"ripgrep"})}
 
 
 def test_adding_the_same_package_twice_changes_nothing() -> None:
-    add_addition(node())
-    add_addition(node(added_at="2027-01-01T00:00:00Z"))
+    add_addition(entry())
+    add_addition(entry(added_at="2027-01-01T00:00:00Z"))
 
     assert len(list_additions()) == 1
     assert len(additions.log_path().read_text().splitlines()) == 1  # not logged twice
 
 
 def test_the_same_package_for_another_release_is_a_separate_entry() -> None:
-    add_addition(node("24.04"))
-    add_addition(node("22.04"))
+    add_addition(entry("24.04"))
+    add_addition(entry("22.04"))
 
     assert local_packages_by_base() == {
-        "24.04": frozenset({"nodejs"}),
-        "22.04": frozenset({"nodejs"}),
+        "24.04": frozenset({"ripgrep"}),
+        "22.04": frozenset({"ripgrep"}),
     }
 
 
 def test_removing_one_release_keeps_the_other() -> None:
-    add_addition(node("24.04"))
-    add_addition(node("22.04"))
+    add_addition(entry("24.04"))
+    add_addition(entry("22.04"))
 
-    removed = remove_addition("nodejs", "22.04")
+    removed = remove_addition("ripgrep", "22.04")
 
     assert [r.base_version for r in removed] == ["22.04"]
-    assert local_packages_by_base() == {"24.04": frozenset({"nodejs"})}
+    assert local_packages_by_base() == {"24.04": frozenset({"ripgrep"})}
 
 
 def test_removing_without_a_release_removes_every_one() -> None:
-    add_addition(node("24.04"))
-    add_addition(node("22.04"))
+    add_addition(entry("24.04"))
+    add_addition(entry("22.04"))
 
-    assert len(remove_addition("nodejs")) == 2
+    assert len(remove_addition("ripgrep")) == 2
     assert list_additions() == []
 
 
 def test_removing_something_that_is_not_there_is_not_an_error() -> None:
-    assert remove_addition("nodejs") == []
+    assert remove_addition("ripgrep") == []
 
 
 def test_every_change_is_logged_without_the_request_text() -> None:
-    add_addition(node())
-    remove_addition("nodejs")
+    add_addition(entry())
+    remove_addition("ripgrep")
 
     events = [json.loads(line) for line in additions.log_path().read_text().splitlines()]
 
     assert [e["event"] for e in events] == ["add", "remove"]
-    assert events[0]["package"] == "nodejs"
+    assert events[0]["package"] == "ripgrep"
     assert events[0]["request_sha256"] == "a" * 64
     assert "note" not in events[0] and "request" not in events[0]
 
@@ -131,19 +131,19 @@ def test_every_change_is_logged_without_the_request_text() -> None:
 def test_a_damaged_file_is_ignored_rather_than_trusted() -> None:
     additions.additions_path().parent.mkdir(parents=True, exist_ok=True)
     additions.additions_path().write_text(
-        "- package: nodejs\n- {nonsense: true}\n", encoding="utf-8"
+        "- package: ripgrep\n- {nonsense: true}\n", encoding="utf-8"
     )
 
     assert list_additions() == []
 
 
 def test_the_digest_input_ignores_timestamps_and_notes() -> None:
-    add_addition(node(added_at="2026-01-01T00:00:00Z", note="one"))
+    add_addition(entry(added_at="2026-01-01T00:00:00Z", note="one"))
     first = canonical_text()
-    remove_addition("nodejs")
-    add_addition(node(added_at="2027-06-06T00:00:00Z", note="completely different"))
+    remove_addition("ripgrep")
+    add_addition(entry(added_at="2027-06-06T00:00:00Z", note="completely different"))
 
-    assert canonical_text() == first == "24.04:nodejs"
+    assert canonical_text() == first == "24.04:ripgrep"
 
 
 # --- strict mode -------------------------------------------------------------------------------
@@ -188,15 +188,15 @@ def test_allow_local_does_not_defeat_the_explicit_variable(monkeypatch) -> None:
 
 
 def test_in_strict_mode_additions_are_not_loaded_and_cannot_be_made(monkeypatch) -> None:
-    add_addition(node())
+    add_addition(entry())
     monkeypatch.setenv(STRICT_ENV, "1")
 
     assert list_additions() == []
     assert len(list_additions(include_inactive=True)) == 1  # visible, so a person can see them
     with pytest.raises(AdditionsDisabled, match="strict mode is on"):
-        add_addition(node("22.04"))
+        add_addition(entry("22.04"))
     with pytest.raises(AdditionsDisabled):
-        remove_addition("nodejs")
+        remove_addition("ripgrep")
     assert load_allowlist().local_packages == {}
 
 
@@ -208,18 +208,19 @@ def test_the_environment_variable_name_matches_the_policy() -> None:
 
 
 def test_a_package_outside_the_list_is_rejected_until_it_is_added() -> None:
-    assert "package.not_allowed" in evaluate(spec("nodejs"), load_allowlist()).codes()
+    assert "package.not_allowed" in evaluate(spec("ripgrep"), load_allowlist()).codes()
 
-    add_addition(node())
+    add_addition(entry())
 
-    assert evaluate(spec("nodejs"), load_allowlist()).codes() == ()
+    assert evaluate(spec("ripgrep"), load_allowlist()).codes() == ()
 
 
 def test_an_addition_only_counts_for_the_release_it_was_checked_on() -> None:
-    add_addition(node("24.04"))
+    add_addition(entry("24.04"))
 
-    assert evaluate(spec("nodejs", base="24.04"), load_allowlist()).codes() == ()
-    assert "package.not_allowed" in evaluate(spec("nodejs", base="22.04"), load_allowlist()).codes()
+    assert evaluate(spec("ripgrep", base="24.04"), load_allowlist()).codes() == ()
+    rejected = evaluate(spec("ripgrep", base="22.04"), load_allowlist()).codes()
+    assert "package.not_allowed" in rejected
 
 
 def test_the_packaged_list_always_applies_to_every_release() -> None:
@@ -227,7 +228,7 @@ def test_the_packaged_list_always_applies_to_every_release() -> None:
 
 
 def test_a_package_on_the_never_list_is_refused_even_if_it_was_added() -> None:
-    add_addition(node(package="telnetd"))
+    add_addition(entry(package="telnetd"))
 
     verdict = evaluate(spec("telnetd"), load_allowlist())
 
@@ -242,13 +243,13 @@ def test_the_never_list_is_packaged_and_disjoint_from_the_allowed_list() -> None
 
 
 def test_an_explicit_allowlist_file_ignores_local_additions(tmp_path) -> None:
-    add_addition(node())
+    add_addition(entry())
     own = tmp_path / "own.yaml"
     packaged = resources.files("gira_iso.policy").joinpath("allowlist.yaml").read_text("utf-8")
     own.write_text(packaged, encoding="utf-8")
 
     assert load_allowlist(str(own)).local_packages == {}
-    assert load_allowlist().local_packages == {"24.04": frozenset({"nodejs"})}
+    assert load_allowlist().local_packages == {"24.04": frozenset({"ripgrep"})}
 
 
 # --- provenance ---------------------------------------------------------------------
@@ -267,27 +268,27 @@ def test_without_additions_the_digest_is_exactly_the_hash_of_the_file() -> None:
 def test_an_addition_changes_the_digest() -> None:
     before = allowlist_digest()[1]
 
-    add_addition(node())
+    add_addition(entry())
 
     assert allowlist_digest()[1] != before
 
 
 def test_removing_the_addition_restores_the_original_digest() -> None:
-    add_addition(node())
-    remove_addition("nodejs")
+    add_addition(entry())
+    remove_addition("ripgrep")
 
     assert allowlist_digest()[1] == packaged_hash()
 
 
 def test_strict_mode_gives_the_digest_of_the_file_alone(monkeypatch) -> None:
-    add_addition(node())
+    add_addition(entry())
     monkeypatch.setenv(STRICT_ENV, "1")
 
     assert allowlist_digest()[1] == packaged_hash()
 
 
 def test_an_explicit_file_digest_ignores_additions(tmp_path) -> None:
-    add_addition(node())
+    add_addition(entry())
     own = tmp_path / "own.yaml"
     own.write_text("base_images: {}\npackages: []\nservices: []\n", encoding="utf-8")
 
@@ -295,13 +296,13 @@ def test_an_explicit_file_digest_ignores_additions(tmp_path) -> None:
 
 
 def test_the_manifest_lists_only_the_additions_the_image_uses() -> None:
-    add_addition(node())
-    add_addition(node(package="unused-tool"))
-    add_addition(node("22.04"))
+    add_addition(entry())
+    add_addition(entry(package="unused-tool"))
+    add_addition(entry("22.04"))
 
-    ref = _policy_ref(spec("nginx", "nodejs"))
+    ref = _policy_ref(spec("nginx", "ripgrep"))
 
-    assert [(a.package, a.base_version) for a in ref.local_additions] == [("nodejs", "24.04")]
+    assert [(a.package, a.base_version) for a in ref.local_additions] == [("ripgrep", "24.04")]
 
 
 def test_a_manifest_written_before_additions_existed_still_validates() -> None:
@@ -335,11 +336,11 @@ def test_a_manifest_written_before_additions_existed_still_validates() -> None:
 
 
 def test_the_prompt_lists_local_additions_with_the_releases_they_apply_to() -> None:
-    add_addition(node("24.04"))
+    add_addition(entry("24.04"))
 
     section = catalog_section(load_allowlist())
 
-    assert "nodejs (added locally, only for ubuntu 24.04)" in section
+    assert "ripgrep (added locally, only for ubuntu 24.04)" in section
 
 
 def test_the_prompt_has_no_local_marker_without_additions() -> None:
@@ -347,7 +348,7 @@ def test_the_prompt_has_no_local_marker_without_additions() -> None:
 
 
 def test_alternatives_may_name_a_locally_added_package() -> None:
-    add_addition(node("24.04"))
+    add_addition(entry("24.04"))
     interpretation = Interpretation.model_validate(
         {
             "kind": "spec",

@@ -44,6 +44,18 @@ verificación de checksum y formatos. Nunca se ejecutó contra una nube real.
 
 ## 2. Endurecimiento pendiente
 
+- **Fijar la revisión de los snaps empaquetados.** Hoy `docker` y `certbot` se instalan desde el
+  canal `stable`, que es un puntero móvil: la política revisada produce un payload distinto entre
+  builds, y el manifiesto registra el valor de la política (`revision: null`), no la revisión que
+  de verdad se instaló. `revision:` ya está soportado por la política, el render y el manifiesto;
+  falta elegir los números concretos y añadir la aserción de que la revisión instalada coincide
+  con el pin. (revisión R1)
+
+Las demás advertencias de la revisión están cerradas: validación estricta de `id`/`suite`/
+`components`/`url`, reintentos en el provisioner, ejecución real del chequeo de clave con un
+digest incorrecto, pruebas de comportamiento del seed y del manifiesto, y tres limpiezas de
+legibilidad.
+
 - **Verificación por `qemu-guest-agent` en vez de SSH.** El plan lo deja como alternativa opcional.
   Hoy `ssh` es obligatorio (D1) y una imagen no puede deshabilitarlo. El canal virtio-serial ya se
   usa en la VM de verificación para que el agente arranque; falta usarlo como transporte.
@@ -63,9 +75,13 @@ verificación de checksum y formatos. Nunca se ejecutó contra una nube real.
 - **Ampliar servicios habilitables** como las adiciones de paquetes, si hace falta (hoy son 11, curados).
 - **Reintentos y puntos de reanudación del build.** Hoy un build interrumpido se descarta entero.
 - **Comando para limpiar la caché de bases oficiales** (`~/.cache/gira-iso/images`); crece sin límite.
-- **Recetas aprobadas para software fuera de apt** (opencode, nvm, Docker CE oficial): el sistema lo
-  reconoce y lo explica, pero no puede instalarlo. Exige decidir qué binarios fija la organización por
-  URL y sha256.
+- **Recetas aprobadas para software fuera de apt.** Los snaps y los repositorios oficiales ya
+  están soportados (ver README). Queda **GitHub**: un asset de release es un binario opaco
+  corriendo como root, sin `dpkg` que lo respalde. Exigiría fijar tag, nombre de asset y sha256
+  por entrada, y prohibir `latest` (es un puntero mutable). Falta decidir cómo se revisa.
+- **Fijar la revisión de los snaps empaquetados.** Hoy se fija el canal (`stable`), que es un
+  puntero móvil. `revision:` ya está soportado por la política y por el manifiesto; falta elegir
+  una revisión concreta para `docker` y `certbot` y revisarla como cualquier otro pin.
 
 ## 3. Deuda del arnés de evaluación
 

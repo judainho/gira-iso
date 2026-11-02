@@ -139,9 +139,9 @@ def test_blocked_passes_on_a_model_refusal(allowlist) -> None:
     assert score_case(_case("blocked"), "reject", None, allowlist).passed
 
 
-def test_compare_reports_all_four_fields() -> None:
+def test_compare_reports_every_scored_field() -> None:
     scores = compare(Spec.model_validate({}), Spec.model_validate({}))
-    assert set(scores) == {"packages", "services", "users", "files"}
+    assert set(scores) == {"packages", "snaps", "services", "users", "files"}
 
 
 def test_aggregate_computes_precision_recall_and_rates() -> None:

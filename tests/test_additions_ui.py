@@ -14,11 +14,11 @@ from gira_iso.nl.client import Completion, CredentialCheck
 
 runner = CliRunner()
 
-NODE = ArchivePackage("nodejs", "18.19.1", "universe", "web", "Release")
+RG = ArchivePackage("ripgrep", "18.19.1", "universe", "web", "Release")
 TELNET = ArchivePackage("telnetd", "0.17", "universe", "net", "Release")
 
 
-def missing(item: str = "node") -> str:
+def missing(item: str = "rg") -> str:
     return json.dumps(
         {
             "kind": "spec",
@@ -28,8 +28,8 @@ def missing(item: str = "node") -> str:
     )
 
 
-def with_node() -> str:
-    return json.dumps({"kind": "spec", "spec": {"packages": ["nginx", "nodejs"]}})
+def with_ripgrep() -> str:
+    return json.dumps({"kind": "spec", "spec": {"packages": ["nginx", "ripgrep"]}})
 
 
 def suggestion(*names: str) -> str:
@@ -56,7 +56,7 @@ def world(monkeypatch, tmp_path, make_build):
     )
     monkeypatch.setattr(
         "gira_iso.archive.lookup",
-        lambda package, base_version, fetch=None: {"nodejs": NODE, "telnetd": TELNET}.get(package),
+        lambda package, base_version, fetch=None: {"ripgrep": RG, "telnetd": TELNET}.get(package),
     )
     monkeypatch.setenv("GIRA_ISO_LLM_API_KEY", "key")
     monkeypatch.setattr("gira_iso.tui.app.check_credentials", lambda c: CredentialCheck("ok"))
@@ -83,21 +83,21 @@ def create(*extra: str, input: str = ""):
 
 
 def test_the_cli_asks_and_an_approval_extends_the_list_and_builds(world) -> None:
-    world.use(missing(), suggestion("nodejs"), with_node())
+    world.use(missing(), suggestion("ripgrep"), with_ripgrep())
 
-    result = create(input="y\ny\n")  # allow nodejs? then: build this image?
+    result = create(input="y\ny\n")  # allow ripgrep? then: build this image?
 
     assert result.exit_code == 0, result.output
     assert "the request needs packages that are not on the allowlist" in result.output
-    assert "found     nodejs 18.19.1 (universe, web) in ubuntu 24.04" in result.output
-    assert [a.package for a in list_additions()] == ["nodejs"]
-    assert world.built[0].packages == ["nginx", "nodejs"]
+    assert "found     ripgrep 18.19.1 (universe, web) in ubuntu 24.04" in result.output
+    assert [a.package for a in list_additions()] == ["ripgrep"]
+    assert world.built[0].packages == ["nginx", "ripgrep"]
 
 
 def test_the_default_answer_is_no(world) -> None:
-    world.use(missing(), suggestion("nodejs"))
+    world.use(missing(), suggestion("ripgrep"))
 
-    result = create(input="\ny\n")  # Enter at "allow nodejs?", then build anyway
+    result = create(input="\ny\n")  # Enter at "allow ripgrep?", then build anyway
 
     assert result.exit_code == 0, result.output
     assert list_additions() == []
@@ -106,13 +106,13 @@ def test_the_default_answer_is_no(world) -> None:
 
 def test_yes_does_not_approve_an_addition(world) -> None:
     """--yes skips the build prompt. It must not answer a question about widening the policy."""
-    world.use(missing(), suggestion("nodejs"))
+    world.use(missing(), suggestion("ripgrep"))
 
     result = create("--yes", input="n\n")
 
     assert result.exit_code == 0, result.output
     assert list_additions() == []
-    assert "allow nodejs?" in result.output  # it was asked, and --yes did not answer it
+    assert "allow ripgrep?" in result.output  # it was asked, and --yes did not answer it
 
 
 def test_a_refusal_is_explained_in_the_cli(world) -> None:
@@ -127,7 +127,7 @@ def test_a_refusal_is_explained_in_the_cli(world) -> None:
 
 
 def test_non_interactive_never_asks_and_reports_what_could_be_added(world) -> None:
-    world.use(missing("nodejs"))
+    world.use(missing("ripgrep"))
 
     result = create("--non-interactive", "--json")
 
@@ -135,26 +135,26 @@ def test_non_interactive_never_asks_and_reports_what_could_be_added(world) -> No
     payload = json.loads(result.stdout)
     assert payload["added"] == []
     assert [(p["package"], p["component"], p["base_version"]) for p in payload["addable"]] == [
-        ("nodejs", "universe", "24.04")
+        ("ripgrep", "universe", "24.04")
     ]
-    assert "addable   nodejs (universe 18.19.1): gira-iso allow add nodejs --base 24.04" in (
+    assert "addable   ripgrep (universe 18.19.1): gira-iso allow add ripgrep --base 24.04" in (
         result.stderr
     )
     assert list_additions() == []
 
 
 def test_json_lists_what_was_added(world) -> None:
-    world.use(missing(), suggestion("nodejs"), with_node())
+    world.use(missing(), suggestion("ripgrep"), with_ripgrep())
 
-    # Both questions (allow nodejs? build this image?) go to stderr; stdout stays pure JSON.
+    # Both questions (allow ripgrep? build this image?) go to stderr; stdout stays pure JSON.
     result = create("--json", input="y\ny\n")
 
     assert result.exit_code == 0, result.output
     # CliRunner copies the typed answers into stdout (a real terminal echoes them itself), so
     # the JSON is read from its first brace; nothing the program printed comes before it.
     payload = json.loads(result.stdout[result.stdout.index("{") :])
-    assert payload["added"] == ["nodejs"] and payload["addable"] == []
-    assert "allow nodejs?" in result.stderr  # the question itself went to stderr
+    assert payload["added"] == ["ripgrep"] and payload["addable"] == []
+    assert "allow ripgrep?" in result.stderr  # the question itself went to stderr
 
 
 # --- menu ----------------------------------------------------------------------------------
@@ -165,7 +165,7 @@ def menu(*answers: str):
 
 
 def test_the_menu_shows_the_table_asks_and_builds_with_the_new_package(world, tmp_path) -> None:
-    world.use(missing(), suggestion("nodejs"), with_node())
+    world.use(missing(), suggestion("ripgrep"), with_ripgrep())
 
     result = menu("nginx y node", "y", "web", "y", "n", str(tmp_path), "0")
 
@@ -173,13 +173,13 @@ def test_the_menu_shows_the_table_asks_and_builds_with_the_new_package(world, tm
     assert "Paquetes reales de Ubuntu" in result.output
     assert "universe" in result.output and "18.19.1" in result.output
     assert "como root" in result.output
-    assert [a.package for a in list_additions()] == ["nodejs"]
-    assert world.built[0].packages == ["nginx", "nodejs"]
-    assert "nodejs" in result.output  # the second interpretation lists it under "Lo que entendí"
+    assert [a.package for a in list_additions()] == ["ripgrep"]
+    assert world.built[0].packages == ["nginx", "ripgrep"]
+    assert "ripgrep" in result.output  # the second interpretation lists it under "Lo que entendí"
 
 
 def test_declining_in_the_menu_builds_without_it(world, tmp_path) -> None:
-    world.use(missing(), suggestion("nodejs"))
+    world.use(missing(), suggestion("ripgrep"))
 
     result = menu("nginx y node", "n", "web", "y", "n", str(tmp_path), "0")
 

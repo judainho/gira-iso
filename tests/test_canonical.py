@@ -18,7 +18,7 @@ def test_defaults_are_applied_before_hashing() -> None:
     explicit = Spec.model_validate(
         {
             **build_spec().model_dump(),
-            "spec_version": "0",
+            "spec_version": "1",
             "files": [
                 {
                     "path": "/etc/nginx/conf.d/site.conf",
@@ -48,4 +48,4 @@ def test_canonical_json_is_compact_and_key_sorted() -> None:
     text = canonical_json(build_spec())
     assert '": ' not in text and '", "' not in text
     assert text.startswith('{"base"')
-    assert '"spec_version":"0"' in text
+    assert '"spec_version":"1"' in text

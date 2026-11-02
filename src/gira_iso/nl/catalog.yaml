@@ -18,6 +18,12 @@ packages:
   curl: {description: "Command-line HTTP client", aliases: [http client]}
   dnsutils: {description: "dig and nslookup DNS tools", aliases: [dig, nslookup, bind-utils]}
   docker.io: {description: "Docker engine from the Ubuntu repositories (not the official Docker CE)", aliases: [docker, docker engine, containers]}
+  docker-ce: {description: "Docker engine from Docker's own repository", aliases: [docker ce, official docker]}
+  docker-ce-cli: {description: "Docker command-line client from Docker's repository", aliases: []}
+  containerd.io: {description: "Container runtime shipped by Docker", aliases: []}
+  docker-buildx-plugin: {description: "Docker buildx plugin", aliases: [buildx]}
+  docker-compose-plugin: {description: "Docker Compose v2 plugin", aliases: [docker compose]}
+  nodejs: {description: "Node.js runtime from NodeSource (newer than Ubuntu's build)", aliases: [node, node.js, npm]}
   fail2ban: {description: "Bans IPs after repeated failed logins", aliases: [brute force protection]}
   git: {description: "Version control", aliases: [version control]}
   htop: {description: "Interactive process viewer", aliases: [process monitor, top]}
@@ -53,7 +59,7 @@ packages:
 services:
   chrony: {description: "Time synchronisation daemon"}
   cron: {description: "Scheduled jobs"}
-  docker: {description: "Docker daemon (needs the docker.io package)"}
+  docker: {description: "Docker daemon (needs the docker.io or docker-ce package, or the docker snap)"}
   fail2ban: {description: "Intrusion banning daemon"}
   nginx: {description: "nginx web server"}
   postgresql: {description: "PostgreSQL server"}
@@ -63,12 +69,14 @@ services:
   ssh: {description: "SSH server"}
   ufw: {description: "Firewall"}
 
+snaps:
+  docker: {description: "Docker engine as a snap (classic confinement)", aliases: [docker snap]}
+  certbot: {description: "Let's Encrypt client as a snap (classic confinement)", aliases: [letsencrypt snap]}
+
 # Well-known software that is NOT in the catalog, so the model recognises it as a program
 # instead of guessing a package name. Not exhaustive: the prompt states the general rule.
 programs_outside_the_catalog:
   - {name: opencode, how_it_is_installed: "npm package or install script"}
   - {name: nvm, how_it_is_installed: "install script from GitHub"}
-  - {name: "Docker CE (official)", how_it_is_installed: "Docker's own apt repository"}
   - {name: kubectl, how_it_is_installed: "binary download or snap"}
   - {name: terraform, how_it_is_installed: "HashiCorp apt repository or binary download"}
-  - {name: "Node.js / npm", how_it_is_installed: "NodeSource repository or nvm; not in this catalog"}

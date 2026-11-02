@@ -11,7 +11,7 @@ from gira_iso.spec.models import MAX_FILE_BYTES, Spec
 
 def test_minimal_spec_applies_defaults() -> None:
     spec = Spec.model_validate({})
-    assert spec.spec_version == "0"
+    assert spec.spec_version == "1"
     assert spec.base.os == "ubuntu"
     assert spec.base.version == "24.04"
     assert spec.disk_size == "8G"

@@ -13,12 +13,13 @@ from gira_iso.eval.dataset import Case
 from gira_iso.policy.evaluate import Allowlist, evaluate
 from gira_iso.spec.models import Spec
 
-FIELDS = ("packages", "services", "users", "files")
+FIELDS = ("packages", "snaps", "services", "users", "files")
 
 
 def field_sets(spec: Spec) -> dict[str, frozenset[str]]:
     return {
         "packages": frozenset(spec.packages),
+        "snaps": frozenset(spec.snaps),
         "services": frozenset(spec.services.enable),
         "users": frozenset(user.name for user in spec.users),
         "files": frozenset(entry.path for entry in spec.files),

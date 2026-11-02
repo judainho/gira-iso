@@ -146,7 +146,7 @@ def test_invented_alternatives_are_dropped() -> None:
                 "item": "opencode",
                 "kind": "program",
                 "reason": "not an apt package",
-                "alternatives": ["tmux", "not-a-real-package", "nodejs"],
+                "alternatives": ["tmux", "not-a-real-package", "telnetd"],
             }
         ]
     )

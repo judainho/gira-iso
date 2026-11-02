@@ -132,6 +132,19 @@ def policy() -> None:
     typer.echo(f"  sha256    {digest}")
     typer.echo(f"  override  set {ENV_VAR}=/path/to/allowlist.yaml")
     typer.echo(f"  packages  {len(active.packages)}")
+    typer.echo(
+        f"  snaps     {len(active.snaps)}"
+        + (f" ({', '.join(sorted(active.snaps))})" if active.snaps else "")
+    )
+    typer.echo(
+        f"  repos     {len(active.repositories)}"
+        + (
+            f" ({', '.join(sorted(active.repositories))}); "
+            f"{len(active.package_repository)} package(s) come from them"
+            if active.repositories
+            else ""
+        )
+    )
     local = sum(len(names) for names in active.local_packages.values())
     mode = "strict (additions ignored)" if strict_mode() else "additions allowed"
     typer.echo(f"  local     {local} added on this machine; {mode}")
