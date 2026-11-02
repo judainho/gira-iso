@@ -14,12 +14,38 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from gira_iso.errors import EXIT_INVALID, GiraError
 from gira_iso.eval.dataset import Case
 from gira_iso.eval.scoring import CaseResult, score_case
 from gira_iso.nl.client import Completer, Inference, interpret
 from gira_iso.nl.schema import Interpretation
 from gira_iso.policy.evaluate import Allowlist
 from gira_iso.spec.models import Spec
+
+
+class RecordError(GiraError):
+    """A recording that cannot be replayed: missing, unreadable or not a recorded run."""
+
+    exit_code = EXIT_INVALID
+
+
+def load_record(record_path: Path) -> dict[str, Any]:
+    """Read a recording, refusing anything that is not one with a message instead of a traceback."""
+    try:
+        payload = json.loads(record_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise RecordError(f"no such recording: {record_path}") from None
+    except OSError as exc:
+        raise RecordError(f"cannot read {record_path}: {exc.strerror or exc}") from None
+    except json.JSONDecodeError as exc:
+        raise RecordError(f"{record_path} is not valid JSON: {exc}") from None
+    if not isinstance(payload, dict) or not isinstance(payload.get("entries"), list):
+        raise RecordError(f"{record_path} is not a recorded run: it has no entries")
+    try:
+        {entry["case_id"] for entry in payload["entries"]}
+    except (KeyError, TypeError):
+        raise RecordError(f"{record_path} is not a recorded run: an entry has no case_id") from None
+    return payload
 
 
 @dataclass(frozen=True)
@@ -109,7 +135,7 @@ def run_eval(
 
 def replay(record_path: Path, *, cases: list[Case], allowlist: Allowlist) -> EvalReport:
     """Re-score a recorded run without touching the network."""
-    payload = json.loads(record_path.read_text(encoding="utf-8"))
+    payload = load_record(record_path)
     by_id = {entry["case_id"]: entry for entry in payload["entries"]}
     results: list[CaseResult] = []
 
