@@ -1,323 +1,476 @@
-# gira-iso
+<p align="center">
+  <img src="docs/assets/gira-pucp.png" alt="Grupo de Investigación en Redes Avanzadas — GIRA PUCP" width="460">
+</p>
 
-Turn a natural-language description into a reproducible, cloud-ready `qcow2` image.
+<h1 align="center">gira-iso</h1>
 
-**Design principle:** the LLM never generates scripts or images. It only produces a declarative
-spec that is validated against a schema and a security policy. A deterministic engine builds the
-image from that spec.
+<p align="center">
+  De una descripción en lenguaje natural a una imagen <code>qcow2</code> reproducible,<br>
+  verificable y lista para la nube.
+</p>
+
+---
+
+## Tabla de contenido
+
+1. [Qué es](#qué-es)
+2. [Estado del proyecto](#estado-del-proyecto)
+3. [Requisitos](#requisitos)
+4. [Instalación](#instalación)
+5. [Uso](#uso)
+6. [Cómo funciona](#cómo-funciona)
+7. [Modelo de seguridad](#modelo-de-seguridad)
+8. [Configuración](#configuración)
+9. [Documentación](#documentación)
+10. [Estructura del repositorio](#estructura-del-repositorio)
+11. [Desarrollo](#desarrollo)
+12. [Alcance y límites](#alcance-y-límites)
+13. [Licencia](#licencia)
+
+---
+
+## Qué es
+
+`gira-iso` convierte una petición en lenguaje natural o una especificación YAML en una imagen
+`qcow2` para Ubuntu, con procedencia completa y verificación opcional.
+
+**Principio de diseño:** el modelo de lenguaje nunca genera scripts ni imágenes. Solo produce una
+especificación declarativa que se valida contra un esquema y una política de seguridad. Un motor
+determinista construye la imagen a partir de esa especificación.
 
 ```
-natural language -> spec (spec.yaml) -> build template -> qcow2 image -> verification
-        |                  ^
-        v                  |
-   interpreter (LLM) -> schema + policy
+lenguaje natural ──► intérprete (LLM) ──► spec ──► esquema + política ──► builder (Packer/QEMU)
+                                                                                │
+                                              verificación (QEMU + goss) ◄──────┤
+                                                                                ▼
+                                                        imagen qcow2 + manifest.json ──► push (OpenStack)
 ```
 
-Status: initial design (v0). Development is incremental: every stage is built by hand and
-understood before it is automated.
+Ese límite es lo que hace el resultado auditable: lo que el modelo puede afirmar queda reducido a
+campos validados, y todo lo que entra en la imagen pasa por la política.
 
-## Interactive menu
+| Garantía | Cómo se consigue |
+|---|---|
+| Reproducibilidad funcional | Misma especificación, mismas versiones, mismos paquetes y usuarios |
+| Trazabilidad | `manifest.json` con hashes de especificación, política, base y artefacto |
+| Rechazo temprano | La política corre antes de descargar o construir nada |
+| Verificación real | Arranque en QEMU y aserciones `goss` generadas desde la especificación |
+| Sin secretos en disco | La clave del modelo solo vive en el entorno |
 
-Run `gira-iso` with no arguments. It asks for the API key first (hidden, validated, never
-written to disk) and then offers:
+---
 
-1. **List images**: pick one to see its provenance, export it, or delete it.
-2. **Upload a base image**: register a local Ubuntu cloud image (`*-cloudimg-amd64.img`, qcow2).
-   Installer ISOs are refused; they cannot be used as a base.
-3. **Base images**: the pinned official ones (Ubuntu 22.04 and 24.04) and your own, with a
-   download option for the official ones.
-4. **Create an image**: choose the base, describe the image in Spanish or English (or pick one of
-   the examples), review the interpreted spec and token usage, then watch the build.
-5. **Allowed packages**: the packaged list plus what you added on this machine; add or remove one.
+## Estado del proyecto
 
-The interpreter is told the allowed catalog (`policy/allowlist.yaml`, described in
-`src/gira_iso/nl/catalog.yaml`), so it can tell a **package** (`docker` becomes `docker.io`) from
-a **program** that apt does not provide (opencode, nvm, the official Docker CE). The menu shows
-*what it understood* and *what it cannot include*, with the reason and allowed alternatives; those
-claims are checked against the spec and the policy before you see them. If the policy rejects the
-spec, the violations go back to the model so it can correct itself, and nothing is built unless
-the final spec passes.
+| Fase | Contenido | Estado |
+|---|---|---|
+| F0–F4 | Esquema, política, construcción con Packer, manifest, CLI básica | Cerradas |
+| F5 | Intérprete de lenguaje natural y arnés de evaluación | Código cerrado; **sin medir contra un modelo real** |
+| F6 | Verificación en QEMU con `goss` | Cerrada, salvo un punto |
+| F7 | Subida a OpenStack Glance | Implementada; **sin probar contra una nube real** |
+| Extra | Paquetes añadidos localmente, snaps, repositorios oficiales | Implementados y revisados |
 
-If the request needs a real Ubuntu package that is not on the allowlist (say, `ripgrep`), the
-menu offers to add it; see "Extending the allowlist" below.
+El detalle honesto de lo que funciona, lo que no se ha probado y lo que queda fuera está en
+[`docs/alcance.md`](docs/alcance.md). Las tareas abiertas están en [`backlog.md`](backlog.md).
 
-The last image name and destination are remembered. `Ctrl+C` returns to the menu.
+---
 
-## Commands
+## Requisitos
 
-The scripted surface mirrors the menu:
+- Linux con KVM (`/dev/kvm`).
+- `qemu-system-x86`, `qemu-utils`, `cloud-image-utils`.
+- Packer 1.16.2 y `goss` 0.4.10 (binarios oficiales, fijados por versión y checksum en
+  `toolchain.lock`).
+- Python 3.12 y [`uv`](https://docs.astral.sh/uv/).
+
+---
+
+## Instalación
 
 ```bash
-gira-iso list                                          # images already created
-gira-iso create examples/nginx-web.yaml --name web     # ~45s, writes image + manifest
-gira-iso create "a web server with nginx" --name web   # natural language (asks for the key)
-gira-iso show web                                      # provenance recorded for an image
-gira-iso download web --to ~/Downloads                 # copies image + manifest, checksum verified
-gira-iso delete web                                    # asks first; --yes to skip
-gira-iso clean                                         # delete builds that never finished
-gira-iso clean --bases                                 # delete cached base images no manifest needs
+# Linux o WSL2
+./install.sh
+
+# Windows: prepara WSL2 y ejecuta install.sh dentro
+powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-`create` runs the schema and policy checks before downloading or building anything, so a
-rejected spec costs nothing. Add `--verify` to boot the image and run the generated goss
-assertions immediately after the build. `download` accepts an image name, a build id prefix,
-a build directory or a `manifest.json` path. Builds live in `~/.local/share/gira-iso/builds`
-(override the root with `GIRA_ISO_HOME`).
+Después, `gira-iso` abre el menú interactivo. En Windows:
 
-The older commands (`check`, `plan`, `build`, `verify`, `policy`, `push`, `eval`) are still
-available but hidden from the main help: they are the advanced surface.
+```powershell
+wsl -d Ubuntu -- gira-iso
+```
 
-## Automation
+La primera ejecución pide la clave del endpoint del modelo, salvo que `GIRA_ISO_LLM_API_KEY` ya
+esté definida. El endpoint por defecto es `https://api.llmapi.ai/v1`.
 
-For scripts and CI, `--json` keeps stdout for one JSON object (progress goes to stderr) and
-`--non-interactive` never prompts: the key must be in `GIRA_ISO_LLM_API_KEY`, `--yes` is implied,
-and a request that needs more detail exits `1` listing the questions. `added` and `addable` in the JSON
-list packages added during the run and packages that could be added.
+<details>
+<summary>Instalación manual, paso a paso</summary>
+
+```bash
+# 1. Paquetes del sistema
+sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils
+
+# 2. Toolchain fijado (Packer y goss, verificados por checksum)
+./scripts/check-toolchain.sh
+
+# 3. Dependencias de Python
+uv sync
+
+# 4. Primera imagen
+uv run gira-iso create examples/nginx-web.yaml --name web
+uv run gira-iso list
+```
+
+</details>
+
+---
+
+## Uso
+
+### Menú interactivo
+
+Ejecutar `gira-iso` sin argumentos abre el menú. La clave del modelo se pide primero, oculta y
+validada, y nunca se escribe en disco.
+
+| Opción | Qué hace |
+|---|---|
+| 1. Listar imágenes | Ver procedencia, exportar o eliminar una imagen |
+| 2. Subir imagen base | Registrar una cloud image local (`*-cloudimg-amd64.img`, `qcow2`) |
+| 3. Imágenes base | Las oficiales fijadas (Ubuntu 22.04 y 24.04) y las propias |
+| 4. Crear una imagen | Elegir base, describir la imagen, revisar la spec interpretada y observar el build |
+| 5. Paquetes permitidos | Ver la lista empaquetada, añadir o quitar paquetes locales |
+
+El intérprete conoce el catálogo permitido (`src/gira_iso/policy/allowlist.yaml`, descrito en
+`src/gira_iso/nl/catalog.yaml`), así que distingue un **paquete** (`docker` se traduce a
+`docker.io`) de un **programa** que `apt` no proporciona (opencode, nvm, Docker CE oficial).
+
+El menú muestra *qué entendió* y *qué no puede incluir*, con la razón y las alternativas permitidas.
+Esas afirmaciones se contrastan contra la especificación y la política antes de mostrarlas. Si la
+política rechaza la spec, las violaciones vuelven al modelo para que se corrija, y nada se construye
+hasta que la especificación final pase.
+
+### Comandos
+
+La superficie guionizable refleja el menú:
+
+```bash
+gira-iso list                                          # imágenes creadas
+gira-iso create examples/nginx-web.yaml --name web     # YAML; escribe imagen + manifest
+gira-iso create "un servidor web con nginx" --name web # lenguaje natural (pide la clave)
+gira-iso show web                                      # procedencia registrada
+gira-iso download web --to ~/Downloads                 # copia imagen + manifest con checksum
+gira-iso delete web                                    # pide confirmación; --yes la omite
+gira-iso clean                                         # elimina builds que no terminaron
+gira-iso clean --bases                                 # elimina bases que ningún manifest usa
+```
+
+`create` ejecuta el esquema y la política antes de descargar o construir nada: una especificación
+rechazada no cuesta ancho de banda ni escrituras. Añadir `--verify` arranca la imagen y ejecuta las
+aserciones `goss` inmediatamente después del build.
+
+Los builds se escriben en `~/.local/share/gira-iso/builds`; la raíz se cambia con
+`GIRA_ISO_HOME`.
+
+Los comandos avanzados (`check`, `plan`, `build`, `verify`, `policy`, `push`, `eval`) siguen
+disponibles, pero ocultos de la ayuda principal.
+
+### Automatización
+
+Para scripts, `--json` reserva `stdout` para un único objeto JSON y manda el progreso a `stderr`.
+`--non-interactive` nunca pregunta: la clave debe venir de `GIRA_ISO_LLM_API_KEY`, `--yes` queda
+implícito, y una petición que necesita más detalle sale con código `1` listando las preguntas.
 
 ```bash
 export GIRA_ISO_LLM_API_KEY=...
-gira-iso create "a web server with nginx" --name web --non-interactive --json | jq -r .image
+gira-iso create "un servidor web con nginx" --name web --non-interactive --json | jq -r .image
 gira-iso list --json | jq '.[].name'
 gira-iso show web --json | jq .base
 ```
 
-Exit codes: `0` success, `1` the policy or the verification rejected something (or the model
-needs more detail), `2` invalid input, `3` the environment cannot do it (Packer, QEMU, the base
-image download, an optional dependency such as `openstacksdk` for `push`), `130` interrupted with
-`Ctrl+C`.
+Códigos de salida:
 
-## Extending the allowlist
+| Código | Significado |
+|---|---|
+| `0` | Éxito |
+| `1` | La política o la verificación rechazó algo, o el modelo necesita más detalle |
+| `2` | Entrada inválida |
+| `3` | El entorno no puede hacerlo (Packer, QEMU, descarga de la base, dependencia opcional) |
+| `130` | Interrumpido con `Ctrl+C` |
 
-The packaged list has 42 Ubuntu-archive packages plus 6 that come from a vendor repository (48
-entries in all, see "Snaps and official repositories"). When a request needs a real Ubuntu package
-that is not on it, the model is only asked which package a word means ("node" is `nodejs`); the code
-then asks the Ubuntu archive (Launchpad) whether that release publishes it, and **you** approve each
-package. The model never approves anything, and `--yes` never answers this question.
+---
 
-```bash
-gira-iso allow add nodejs --base 24.04    # checks the archive, shows what it found, asks
-gira-iso allow list                       # what you added on this machine
-gira-iso allow remove nodejs
-```
+## Cómo funciona
 
-- Only `main` and `universe` are offered; `multiverse`, `restricted` and a short `never_add` list
-  (telnetd, desktop metapackages…) are refused. A package is allowed **for the Ubuntu release it was
-  checked against**. It runs its install scripts as root and pulls its dependencies, which are not
-  reviewed.
-- Additions are stored in `~/.local/share/gira-iso/allowlist-additions.yaml` with an audit log, are part
-  of the policy digest, and are listed in the manifest of every image that uses them.
-- **Strict mode** ignores and refuses additions: `GIRA_ISO_STRICT=1`, or automatically when you point
-  `GIRA_ISO_ALLOWLIST` at your organisation's list (`GIRA_ISO_ALLOW_LOCAL=1` overrides that).
-- With `--non-interactive` nothing is asked; `--json` lists `addable` packages and the command to add them.
+1. **Entrada.** Una petición en lenguaje natural o un YAML. El YAML se carga directamente; el texto
+   pasa por el intérprete.
+2. **Interpretación** (`src/gira_iso/nl/`). El cliente habla con cualquier endpoint compatible con
+   OpenAI, pide JSON y reintenta una vez si la salida no valida. El prompt incluye el catálogo
+   permitido.
+3. **Validación** (`src/gira_iso/spec/`, `src/gira_iso/policy/`). Pydantic rechaza formas inválidas.
+   La política devuelve *todas* las razones por las que no se puede construir: paquetes, snaps,
+   servicios, rutas, repositorios y base. Si falla, las violaciones vuelven al modelo.
+4. **Construcción** (`src/gira_iso/builder/`). Descarga o reutiliza la imagen base fijada por
+   `sha256`, renderiza la plantilla de Packer con cloud-init y scripts, y ejecuta el build. El
+   resultado queda en un directorio con su `manifest.json`.
+5. **Verificación** (`src/gira_iso/verify/`, opcional con `--verify`). Arranca la imagen en QEMU,
+   habla con el guest a través del agente de QEMU —sin SSH— y ejecuta las aserciones `goss`.
+6. **Entrega.** `download` copia imagen y manifest con verificación de checksum; `push` sube la
+   imagen a Glance.
 
-## Snaps and official repositories
-
-A spec may install software from two curated sources beyond the Ubuntu archive:
-
-```yaml
-spec_version: "1"
-packages: [nginx, docker-ce]   # docker-ce comes from Docker's own repository
-snaps: [certbot]               # channel and confinement come from the policy, not the spec
-```
-
-What ships today, all reviewed in `policy/allowlist.yaml`:
-
-| Source | Entries | How it is pinned |
-|---|---|---|
-| Snap | `docker`, `certbot` | channel `stable`, `classic` recorded per snap, and a concrete revision (`3618`, `5911`) that the build asserts against `snap list` |
-| Vendor apt repository | `docker-ce`, `nodesource` | the GPG key is pinned by sha256 and verified before apt is allowed to trust it |
-
-Rules that do not bend:
-
-- **The spec names identifiers, never URLs.** A repository is not a spec field: it is an
-  implementation detail of a package. `docker-ce` pulls in the Docker repository; the model
-  cannot point a build at a source of its choosing.
-- **A repository key is root trust.** It signs every package apt will install from that source
-  in the future, not only the ones in the spec. That is why repositories are curated in the
-  packaged allowlist and are **not** addable with `gira-iso allow add`.
-- **Key hash mismatch fails the build.** The key is downloaded, compared against the pin, and
-  only then installed as `/usr/share/keyrings/<id>.asc` with `Signed-By:`. There is no warning
-  path that continues.
-- **Repository packages never go through cloud-init.** cloud-init runs before the repository
-  exists, so a vendor package is installed by a separate provision step that first verifies the
-  key and runs `apt-get update`.
-- **A snap is pinned to a revision, not to a channel.** `stable` is a moving pointer: two builds of
-  the same spec could install different payloads and the manifest could only say "stable". The
-  allowlist pins `docker=3618` and `certbot=5911`; the build assertion and the verification compare
-  the revision `snap list` reports with the pin, so a drift fails the build instead of producing a
-  manifest that lies. Bumping a pin is a reviewed change (see `backlog.md`).
-- **A snap owns its service.** Do not also name it in `services.enable`: the snap starts and
-  enables itself, and asking systemd for a unit of that name fails the build. The policy rejects
-  the combination with `service.snap_managed`.
-- The manifest records, for every image, each snap's name/channel/confinement/revision and
-  each repository's URL, suite, components and key hash.
-
-To extend either list, edit `policy/allowlist.yaml` and review the diff: it is a security
-change, not a configuration tweak. Snaps go under `snaps:`; a repository under `repositories:`
-plus a `{name, repository}` entry in `packages:`.
-
-Out of scope for now: GitHub release assets. They would need a pinned tag, an asset name and a
-sha256 per entry, and the project has not decided how to review them yet (see `backlog.md`).
-
-## Documents
-
-- [`docs/plan-v1.md`](docs/plan-v1.md) — development plan, phases, acceptance gates and closed decisions.
-- [`docs/flujo-de-control.md`](docs/flujo-de-control.md) — control flow: who decides what, where it can stop, how errors propagate, which controls exist and what is still open (with diagrams).
-
-## Quick install
-
-```bash
-./install.sh                                              # Linux or WSL2
-powershell -ExecutionPolicy Bypass -File .\install.ps1    # Windows: sets up WSL2 and runs install.sh inside it
-```
-
-Then run `gira-iso` (on Windows: `wsl -d Ubuntu -- gira-iso`) to open the menu. It asks for your
-API key unless `GIRA_ISO_LLM_API_KEY` is set (endpoint `https://api.llmapi.ai/v1`).
-
-## From zero
-
-```bash
-# 1. Host packages (the only ones this needs from the distribution)
-sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils
-
-# 2. Pinned toolchain: packer 1.16.2 and goss 0.4.10, verified by checksum
-#    (see toolchain.lock for the exact downloads)
-./scripts/check-toolchain.sh          # tells you exactly what is missing or different
-
-# 3. Python
-uv sync
-
-# 4. Spec -> image
-uv run gira-iso create examples/nginx-web.yaml --name web   # ~45s, writes image + manifest
-uv run gira-iso list
-uv run gira-iso download web --to ~/Downloads               # copies image + manifest
-
-# 5. Optional: boot the image and prove it satisfies its manifest
-uv run gira-iso create examples/nginx-web.yaml --name web --verify
-
-# 6. Natural language: the interactive menu, or measure the interpreter with the harness
-uv run gira-iso
-export GIRA_ISO_LLM_BASE_URL=... GIRA_ISO_LLM_API_KEY=... GIRA_ISO_LLM_MODEL=...
-uv run gira-iso eval
-```
-
-Every command exits `0` on success, `1` when the policy or the verification rejects
-something, `2` on invalid input and `3` when the environment fails; none ends in a traceback.
-
-## Requirements
-
-- Linux with KVM (`/dev/kvm`).
-- `qemu-system-x86`, `qemu-utils`, `cloud-image-utils`.
-- Packer (official binary, pinned by version and checksum).
-- Python 3.12 with `uv`.
-
-## Development
-
-```bash
-uv sync
-uv run gira-iso version
-uv run pytest
-uv run ruff check .
-```
-
-## Building an image
+### Construcción de una imagen
 
 ```bash
 uv run gira-iso build examples/nginx-web.yaml
 ```
 
-That renders the spec into a Packer template and a cloud-init seed, runs Packer as a subprocess, and
-writes `builds/<timestamp>-<spec-hash>/manifest.json` next to the image. The manifest records the
-spec, the pinned base image, the Packer and plugin versions, the template hash and the artifact
-hash, so an image is never an anonymous blob.
+El build renderiza la especificación a una plantilla de Packer y un seed de cloud-init, ejecuta
+Packer como subproceso y escribe `manifest.json` junto a la imagen. El manifest registra la
+especificación, la base fijada, las versiones de Packer y sus plugins, el hash de la plantilla y el
+hash del artefacto. Una imagen nunca es un blob anónimo.
 
-Policy runs before anything is downloaded: a rejected spec costs no bandwidth and no writes.
-
-## Verifying an image
+### Verificación de una imagen
 
 ```bash
 uv run gira-iso verify builds/<timestamp>-<spec-hash>
 ```
 
-Reads the manifest, checks the artifact checksum before booting anything, derives a `goss.yaml`
-from the spec and runs it inside a fresh boot with a seed the image has never seen. Exit code is
-`0` only when every assertion passes.
+Lee el manifest y comprueba el checksum del artefacto antes de arrancar nada. Después deriva un
+`goss.yaml` de la especificación y lo ejecuta en un arranque limpio, con un seed que la imagen nunca
+vio. El código de salida es `0` solo si toda aserción pasa.
 
-The channel is the QEMU guest agent on a virtio-serial port, not SSH: the agent runs as root inside
-the guest, so the verification seed declares no user at all. That is what lets the run assert
-something about accounts instead of inventing the one it would otherwise need: no user with a real
-shell may have passwordless sudo except the ones the spec declares (and root).
+El canal es el agente de QEMU sobre un puerto virtio-serial, no SSH: el agente corre como root
+dentro del guest, así que el seed de verificación no declara ningún usuario. Eso permite afirmar
+algo sobre las cuentas en lugar de inventar la que de otro modo haría falta: ningún usuario con
+shell real puede tener `sudo` sin contraseña salvo los que la especificación declara (y root).
 
-Only what the spec claims is asserted: packages installed, services enabled and running, users
-present with their keys, files present with the declared mode and exact content hash. The spec does
-not declare ports, so no port assertion is invented.
+Solo se afirma lo que la especificación declara: paquetes instalados, servicios habilitados y
+corriendo, usuarios con sus claves, archivos con su modo y hash de contenido exacto. La
+especificación no declara puertos, así que no se inventa ninguna aserción de puerto.
 
-`./scripts/boot-vanilla.sh` remains as a debugging tool for booting an image that has no manifest.
+---
 
-## Interpreting natural language
+## Modelo de seguridad
 
-The interpreter is model-agnostic: it speaks to any OpenAI-compatible endpoint.
+La política es el único lugar que decide qué entra en una imagen. Es un artefacto de seguridad, no
+un archivo de configuración.
+
+| Fuente | Cómo se fija |
+|---|---|
+| Paquetes de Ubuntu | Lista curada por versión; las adiciones locales se comprueban contra Launchpad y las aprueba el operador |
+| Snaps | Canal, confinamiento y revisión concreta vienen de la política |
+| Repositorios de terceros | La especificación no los nombra; la clave se fija por `sha256` y se instala con `Signed-By:` |
+| Imágenes base | Fijadas por versión y `sha256` |
+
+Reglas que no se negocian:
+
+- **La especificación nombra identificadores, nunca URLs.** Un repositorio es un detalle de
+  implementación de un paquete; el modelo no puede apuntar un build a un origen elegido por él.
+- **La clave de un repositorio es confianza root.** Firma todo lo que `apt` instale desde ese
+  origen en el futuro. Por eso los repositorios se curan en la política y **no** se añaden con
+  `gira-iso allow add`.
+- **Un hash de clave distinto falla el build.** No hay ruta de advertencia que continúe.
+- **Un snap se fija a una revisión, no a un canal.** `stable` es un puntero móvil; la aserción del
+  build y la verificación comparan la revisión instalada con el pin.
+- **Un snap es dueño de su servicio.** Nombrarlo también en `services.enable` falla el build con
+  `service.snap_managed`.
+
+### Ampliar la lista permitida
+
+La lista empaquetada contiene 48 paquetes, 2 snaps, 2 repositorios con clave fijada, 11 servicios y
+8 prefijos de rutas.
+
+```bash
+gira-iso allow add nodejs --base 24.04    # consulta el archivo, muestra lo encontrado y pregunta
+gira-iso allow list                       # lo añadido en esta máquina
+gira-iso allow remove nodejs
+```
+
+Solo se ofrecen `main` y `universe`; `multiverse`, `restricted` y una lista corta de exclusiones se
+rechazan. Un paquete se permite **para la versión de Ubuntu contra la que se comprobó**. Sus
+scripts de instalación corren como root y sus dependencias no se revisan.
+
+Las adiciones se guardan en `~/.local/share/gira-iso/allowlist-additions.yaml` con un registro de
+auditoría, forman parte del digest de la política y se listan en el manifest de cada imagen que las
+usa.
+
+- **Modo estricto:** `GIRA_ISO_STRICT=1` ignora y rechaza las adiciones. Se activa solo al apuntar
+  `GIRA_ISO_ALLOWLIST` a la lista de la organización; `GIRA_ISO_ALLOW_LOCAL=1` lo anula.
+- Con `--non-interactive` no se pregunta nada; `--json` lista los paquetes `addable` y el comando
+  para añadirlos.
+
+Para cambiar la política:
+
+```bash
+export GIRA_ISO_ALLOWLIST=/etc/gira-iso/allowlist.yaml
+uv run gira-iso policy      # archivo activo, su hash y lo que permite
+```
+
+El hash de la política activa se registra en cada manifest, así que una imagen se puede rastrear
+hasta las reglas que la permitieron.
+
+---
+
+## Configuración
+
+| Variable | Uso | Valor por defecto |
+|---|---|---|
+| `GIRA_ISO_LLM_BASE_URL` | Endpoint compatible con OpenAI | `https://api.llmapi.ai/v1` |
+| `GIRA_ISO_LLM_API_KEY` | Clave del endpoint; obligatoria para llamar al modelo | — |
+| `GIRA_ISO_LLM_MODEL` | Identificador del modelo | `deepseek-v4.1-flash-1017` |
+| `GIRA_ISO_HOME` | Raíz de datos: builds, caché y adiciones | `~/.local/share/gira-iso` |
+| `GIRA_ISO_ALLOWLIST` | Política propia en lugar de la empaquetada | lista incluida |
+| `GIRA_ISO_STRICT` | Ignora y rechaza adiciones locales | desactivado |
+| `GIRA_ISO_ALLOW_LOCAL` | Permite adiciones aunque haya política propia | desactivado |
+
+Como el cliente solo exige un endpoint compatible con OpenAI, un modelo local servido con
+`llama.cpp` u Ollama puede usarse sin cambiar código. Ver
+[`docs/laboratorio-ia-local.md`](docs/laboratorio-ia-local.md).
+
+---
+
+## Documentación
+
+| Documento | Contenido |
+|---|---|
+| [`docs/README.md`](docs/README.md) | Índice de la documentación y orden de lectura |
+| [`docs/alcance.md`](docs/alcance.md) | Qué funciona, qué falta probar y qué queda fuera |
+| [`docs/arquitectura.md`](docs/arquitectura.md) | Módulos, flujo de una creación y fuentes de confianza |
+| [`docs/especificacion.md`](docs/especificacion.md) | Campos de `spec.yaml`, límites y reglas de política |
+| [`docs/plan-v1.md`](docs/plan-v1.md) | Plan de desarrollo por fases, criterios de aceptación y decisiones cerradas |
+| [`docs/flujo-de-control.md`](docs/flujo-de-control.md) | Quién decide qué, dónde se puede parar y cómo se propagan los errores |
+| [`docs/openstack.md`](docs/openstack.md) | Runbook para subir una imagen a Glance |
+| [`docs/laboratorio-ia-local.md`](docs/laboratorio-ia-local.md) | Modelo local en CPU para probar el intérprete sin costo por token |
+| [`backlog.md`](backlog.md) | Lo que queda abierto, ordenado por prioridad |
+
+---
+
+## Estructura del repositorio
+
+```text
+gira-iso/
+├── src/gira_iso/
+│   ├── cli/            Comandos de Typer y menú
+│   ├── tui/            Interfaz interactiva
+│   ├── workflow/       Orquestación de la creación con puertos de entrada/salida
+│   ├── nl/             Intérprete: cliente OpenAI-compatible, prompt y esquema
+│   ├── spec/           Modelo de la especificación y forma canónica
+│   ├── policy/         Lista permitida y evaluación de seguridad
+│   ├── builder/        Base, plantillas, Packer, manifest y exportación
+│   ├── verify/         Arranque en QEMU, agente de invitado y aserciones goss
+│   ├── push/           Subida a OpenStack Glance
+│   ├── eval/           Arnés de evaluación del intérprete
+│   └── templates/      Plantillas de Packer, cloud-init y scripts
+├── tests/              623 pruebas
+├── examples/           Especificaciones de ejemplo
+├── docs/               Documentación y activos del grupo
+├── scripts/            Comprobación de toolchain y arranque vanilla
+├── install.sh          Instalador para Linux y WSL2
+├── install.ps1         Instalador para Windows
+├── toolchain.lock      Versiones y hashes de Packer y goss
+└── backlog.md          Trabajo pendiente
+```
+
+---
+
+## Desarrollo
+
+```bash
+uv sync
+uv run gira-iso version
+uv run pytest          # 623 pruebas
+uv run ruff check .
+uv run ruff format --check .
+```
+
+Este repositorio **no usa CI/CD**. Las comprobaciones se ejecutan en local y no hay workflows de
+GitHub Actions: el proyecto no depende de un servicio externo para validar sus cambios.
+
+La suite cubre esquema, política, builder con Packer simulado, CLI, menú, cancelación, limpieza,
+OpenStack con conexión falsa y el canal del agente de invitado. `scripts/check-toolchain.sh`
+compara el binario del plugin de Packer con el hash de `toolchain.lock`.
+
+### Evaluación del intérprete
+
+El intérprete es agnóstico al modelo: habla con cualquier endpoint compatible con OpenAI.
 
 ```bash
 export GIRA_ISO_LLM_BASE_URL=https://api.example.com/v1
 export GIRA_ISO_LLM_API_KEY=...
-export GIRA_ISO_LLM_MODEL=deepseek-v4-flash   # optional; any id from https://api.llmapi.ai/v1/models
+export GIRA_ISO_LLM_MODEL=deepseek-v4.1-flash-1017
 uv run gira-iso eval
 ```
 
-The model may answer with exactly three shapes: a spec, a list of clarifying questions, or a
-refusal. Anything else fails validation and is retried once with the error attached. The user's
-text is delimited as data, and the policy layer runs independently of whatever the model produced.
-
-### Measuring
+El modelo solo puede responder con tres formas: una especificación, una lista de preguntas de
+aclaración o un rechazo. Cualquier otra cosa falla la validación y se reintenta una vez con el error
+adjunto. El texto del usuario se delimita como dato y la política corre independientemente de lo que
+el modelo haya producido.
 
 ```bash
-uv run gira-iso eval --record eval/runs/2026-10-26.json   # call the model
-uv run gira-iso eval --replay eval/runs/2026-10-26.json   # re-score, no network
+uv run gira-iso eval --record eval/runs/2026-11-01.json   # llama al modelo
+uv run gira-iso eval --replay eval/runs/2026-11-01.json   # re-puntúa, sin red
 ```
 
-The dataset lives in `src/gira_iso/eval/cases.yaml`: 25 cases across simple, composite, ambiguous,
-out-of-scope, adversarial and bilingual categories. It was written before the client, and a test
-enforces that every expected spec is valid under both the schema and the policy.
+El dataset vive en `src/gira_iso/eval/cases.yaml`: 25 casos en categorías simple, compuesto,
+ambiguo, fuera de alcance, adversario y bilingüe. Se escribió antes que el cliente, y una prueba
+exige que toda especificación esperada sea válida bajo el esquema y la política.
 
-## Uploading to OpenStack
+### Subida a OpenStack
 
-Out of the MVP, and optional: `pip install 'gira-iso[openstack]'`.
+Fuera del MVP y opcional:
 
 ```bash
+pip install 'gira-iso[openstack]'
 uv run gira-iso push builds/<timestamp>-<hash> --cloud mycloud
-uv run gira-iso push builds/<timestamp>-<hash> --disk-format raw   # Ceph/RBD backends
+uv run gira-iso push builds/<timestamp>-<hash> --disk-format raw   # backends Ceph/RBD
 ```
 
-Glance properties are derived from the manifest (`os_distro`, `os_version`,
-`hw_qemu_guest_agent`, `hw_disk_bus`, plus the spec, policy and base hashes), and the
-artifact checksum is verified before a byte is sent. A tampered or mismatched image is
-refused.
+Las propiedades de Glance se derivan del manifest (`os_distro`, `os_version`,
+`hw_qemu_guest_agent`, `hw_disk_bus`, y los hashes de especificación, política y base). El checksum
+del artefacto se verifica antes de enviar un solo byte.
 
-## Changing the policy
+### Qué significa reproducibilidad aquí
 
-The allowlist is the security boundary and it is data, not code:
+Dos builds de la misma especificación producen manifests idénticos campo por campo, salvo
+`created_at` y el hash del artefacto. **Los bytes del `.qcow2` difieren**, porque el sistema de
+archivos registra fechas de instalación y metadatos de ext4.
+
+`gira-iso` promete reproducibilidad **de comportamiento** —misma especificación, mismos paquetes,
+mismos usuarios, misma configuración— no imágenes idénticas bit a bit. La reproducibilidad de bytes
+está fuera de alcance y se documenta en [`backlog.md`](backlog.md).
+
+### Depurar una imagen cruda
 
 ```bash
-export GIRA_ISO_ALLOWLIST=/etc/gira-iso/allowlist.yaml
-uv run gira-iso policy      # which file is active, its hash, and what it permits
+./scripts/boot-vanilla.sh --image ruta/a/imagen.qcow2
 ```
 
-The hash of the active policy is recorded in every build manifest, so an image can be
-traced back to the rules that allowed it.
+Arranca una imagen sin manifest e informa si cloud-init aplicó un seed. Existe para trabajo de fase
+0 y depuración; la ruta soportada es `gira-iso verify`.
 
-### What reproducibility means here
+---
 
-Two builds of the same spec produce manifests that are identical field by field except for
-`created_at` and the artifact hash. **The `.qcow2` bytes differ**, because the filesystem records
-install timestamps and ext4 metadata. gira-iso promises behavioural reproducibility — same spec,
-same packages, same users, same configuration — not bit-identical images.
+## Alcance y límites
 
-## Debugging a raw image
+- **Solo Ubuntu 22.04 y 24.04.** Otras distribuciones quedan fuera.
+- **Solo cloud images.** Las imágenes de instalador (ISO) se rechazan.
+- **La precisión del intérprete no está medida.** El arnés de 25 casos detecta regresiones groseras,
+  pero no permite afirmar precisión ni comparar modelos.
+- **Un manifest puede mentir.** El checksum ata los bytes, no las afirmaciones. Firmarlo queda para
+  cuando alguien dependa de esa garantía.
+- **La subida a OpenStack no se ha probado contra una nube real.**
+- **Un build interrumpido se descarta entero.** No hay reanudación por pasos.
 
-`./scripts/boot-vanilla.sh --image path/to/image.qcow2` boots an image that has no
-manifest and reports whether cloud-init applied a seed. It exists for phase 0 work and
-for debugging; the supported path is `gira-iso verify`.
+La lista completa y razonada está en [`docs/alcance.md`](docs/alcance.md); lo accionable, en
+[`backlog.md`](backlog.md).
 
-A spec that tries to disable `ssh`, install a package outside the allowlist or write
-`/etc/sudoers.d/*` is rejected with a reason, and nothing reaches a builder.
+---
+
+## Licencia
+
+MIT. Ver [`LICENSE`](LICENSE).
+
+---
+
+<p align="center">
+  <sub>Grupo de Investigación en Redes Avanzadas — GIRA PUCP</sub>
+</p>

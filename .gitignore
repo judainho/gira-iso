@@ -1,23 +1,91 @@
-# Python
+# =============================================================================
+# gira-iso — files that must never be versioned
+# =============================================================================
+# Rule of thumb: source, specs, policies, templates and documentation are
+# committed. Anything generated locally, anything secret, and anything that
+# identifies a machine stays on the machine.
+# =============================================================================
+
+# --- Python and test tooling ------------------------------------------------
 .venv/
+venv/
 __pycache__/
+*.py[cod]
 *.egg-info/
+build/
+dist/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 .coverage
+coverage.xml
 htmlcov/
 
-# Build artifacts: images, overlays, seeds and Packer output are never committed
+# --- Local tool indexes (regenerated per machine) ---------------------------
+.codegraph/
+.atl/.skill-registry.cache.json
+
+# --- Build artifacts --------------------------------------------------------
+# Images, overlays, seeds, Packer output and build logs are never committed.
 builds/
 *.qcow2
+*.qcow
 *.iso
 *.img
+*.raw
+*.vhdx
+*.vmdk
+*.log
 
-# Local cache mirror
-.cache/
-
-# Evaluation recordings are result artifacts, not source
+# --- Evaluation run artifacts ----------------------------------------------
+# Recordings are results; only the curated baselines are committed.
 eval/runs/
 
-# Gentle AI local cache
-.atl/.skill-registry.cache.json
+# --- Secrets and credentials (never commit) --------------------------------
+.env
+.env.*
+!.env.example
+.envrc
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+id_ecdsa
+id_ecdsa.*
+secrets.yaml
+secrets.yml
+secrets/
+*.secret
+*.token
+clouds.yaml
+clouds.yml
+*.kubeconfig
+.netrc
+.authinfo
+
+# --- Private or sensitive documents ---------------------------------------
+# Local notes, drafts and documents that belong to the group, not to git.
+private/
+privado/
+documentos-privados/
+*.privado.*
+*.confidencial.*
+*.local.md
+*.local.yaml
+*.local.yml
+*.local.json
+
+# --- Operating system and editor files -------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

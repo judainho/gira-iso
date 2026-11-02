@@ -1,28 +1,55 @@
 # Backlog
 
-Lo que queda. Las fases cerradas y sus pruebas están en `docs/plan-v1.md`; aquí solo lo abierto.
+Trabajo abierto de `gira-iso`. Las fases cerradas y sus pruebas viven en
+[`docs/plan-v1.md`](docs/plan-v1.md); el estado honesto de lo implementado, en
+[`docs/alcance.md`](docs/alcance.md). Este archivo solo contiene **lo que falta**, ordenado por
+prioridad.
 
-Estado por fase: F0–F4 cerradas. F5 código cerrado, **sin medir**. F6 cerrada salvo un punto.
-F7 implementada, **sin probar contra una nube**. Snaps y repositorios oficiales integrados
-(2026-11-01, ver `odd/tasks/snaps-and-repositories.md`).
+Convención: `P0` bloquea el uso real del proyecto, `P1` endurece una garantía que hoy es parcial,
+`P2` mejora la evidencia disponible, `P3` es trabajo diferible y `P4` es cosmético o de
+mantenimiento.
+
+| Prioridad | Significado |
+|---|---|
+| P0 | Bloquea el criterio de éxito de una fase o el uso en producción |
+| P1 | Endurecimiento pendiente de una garantía ya prometida |
+| P2 | Deuda del arnés de evaluación |
+| P3 | Trabajo decidido fuera de alcance, no resuelto |
+| P4 | Mantenimiento y limpieza |
 
 ---
 
-## 1. Bloqueantes
+## Estado por fase
 
-### 1.1 Medir F5 contra un modelo real
+| Fase | Estado |
+|---|---|
+| F0–F4 | Cerradas |
+| F5 | Código cerrado, **sin medir contra un modelo real** |
+| F6 | Cerrada, salvo un punto |
+| F7 | Implementada, **sin probar contra una nube** |
+| Extra | Snaps y repositorios oficiales integrados (2026-11-01) |
 
-Sin esto el criterio de éxito de la fase no está cumplido: no hay métricas ni comparación.
+---
 
-- El endpoint por defecto es `https://api.llmapi.ai/v1` y `/v1/models` lista 396 modelos **sin
-  autenticación**, así que responde 200 pero no prueba ninguna credencial. `/v1/chat/completions`
-  rechaza la clave de este entorno con `401 invalid_api_key`, tanto con `Authorization: Bearer` como
-  con `x-api-key`.
-- Falta una clave que el endpoint de chat acepte y elegir el **modelo de línea base** para la
-  comparación. Los candidatos ya están listados por el proveedor: `deepseek-v4.1-flash-1017` (el
-  modelo por defecto del código) y, como línea base barata, `claude-haiku-4-5`.
+## P0 — Bloqueantes
 
-Con las dos cosas:
+### B-01 · Medir F5 contra un modelo real
+
+Sin esto no hay métricas ni comparación de modelos, y el criterio de éxito de la fase no se cumple.
+
+**Situación actual.** El endpoint por defecto es `https://api.llmapi.ai/v1`. Su `/v1/models` lista
+396 modelos **sin autenticación**: responde `200` pero no prueba ninguna credencial.
+`/v1/chat/completions` rechaza la clave disponible en este entorno con `401 invalid_api_key`, tanto
+con `Authorization: Bearer` como con `x-api-key`.
+
+**Falta:**
+
+1. Una clave que el endpoint de chat acepte.
+2. Elegir el **modelo de línea base** para la comparación. Candidatos ya listados por el proveedor:
+   `deepseek-v4.1-flash-1017` (modelo por defecto del código) y `claude-haiku-4-5` como línea base
+   barata.
+
+**Criterio de cierre.** Existen dos grabaciones reproducibles y una comparación legible:
 
 ```bash
 GIRA_ISO_LLM_API_KEY=... GIRA_ISO_LLM_MODEL=deepseek-v4.1-flash-1017 \
@@ -32,77 +59,138 @@ GIRA_ISO_LLM_API_KEY=... GIRA_ISO_LLM_MODEL=claude-haiku-4-5 \
 uv run gira-iso eval --replay eval/runs/current.json     # re-puntuar, sin red
 ```
 
-La infraestructura ya está: `eval/baselines/` es donde se compromete una grabación para que el CI la
-repita sin llamar al modelo, y la documentación de `--replay` está en el README.
+La infraestructura está lista: `eval/runs/` es local, y una grabación se puede promover a
+`eval/baselines/` para re-puntuarla sin red.
 
-### 1.2 Revisar la política como artefacto de seguridad
+### B-02 · Revisar la política como artefacto de seguridad
 
 `src/gira_iso/policy/allowlist.yaml` decide qué paquetes, servicios, rutas, snaps y repositorios se
-permiten. Es una decisión de la organización, no técnica. Ya lo usan el builder, el dataset y
-`gira-iso push`. Hoy son 48 entradas de paquete (42 del archivo de Ubuntu y 6 que llegan por
-repositorio de tercero), 2 snaps, 2 repositorios con su clave fijada por sha256, 11 servicios y 8
-prefijos de rutas. Canjear la lista curada por la política real es lo primero que debería pasar antes
-de usar esto en serio; la clave de un repositorio es confianza root permanente para todo lo que apt
-instale desde ese origen.
+permiten. Es una decisión de la organización, no técnica.
 
-### 1.3 Probar la subida a OpenStack
+Hoy contiene 48 paquetes (42 del archivo de Ubuntu y 6 de repositorios de terceros), 2 snaps, 2
+repositorios con clave fijada por `sha256`, 11 servicios y 8 prefijos de rutas.
 
-`src/gira_iso/push/openstack.py` está implementada y testeada contra una conexión falsa: propiedades,
-verificación de checksum y formatos. Nunca se ejecutó contra una nube real. `docs/openstack.md` es el
-runbook (`clouds.yaml`, nombre en Glance, comprobación manual de arranque).
+**Falta:** canjear la lista curada por la política real de la organización antes de usar esto en
+serio. La clave de un repositorio es confianza root permanente para todo lo que `apt` instale desde
+ese origen.
 
-- Falta un `clouds.yaml` y un proyecto OpenStack.
-- Falta la prueba de arranque real de la instancia (el criterio que el plan pone para F7).
-- Pendiente decidir si el nombre por defecto (`ubuntu-24.04-<hash>`) es el que quieres en Glance.
+**Criterio de cierre.** La política activa (`GIRA_ISO_ALLOWLIST`) fue revisada por quien decide, y
+el hash registrado en los manifests corresponde a esa revisión.
 
----
+### B-03 · Probar la subida a OpenStack
 
-## 2. Endurecimiento pendiente
+`src/gira_iso/push/openstack.py` está implementada y testeada contra una conexión falsa:
+propiedades, verificación de checksum y formatos. Nunca se ejecutó contra una nube real.
+[`docs/openstack.md`](docs/openstack.md) es el runbook (`clouds.yaml`, nombre en Glance,
+comprobación manual de arranque).
 
-- **Un manifest puede mentir.** El checksum ata los bytes, no las afirmaciones. Firmar el manifest
-  queda para cuando alguien dependa de esa garantía.
-- **Mostrar las dependencias de un paquete que se va a agregar.** Permitir `nodejs` permite todo su
-  árbol, y Launchpad no lo da; hoy solo se avisa. Haría falta una consulta a otra fuente.
-- **Probar la traducción de nombres con el modelo real** (`nl/suggest.py`): pedir `nginx y node`.
-- **Ampliar servicios habilitables** como las adiciones de paquetes, si hace falta (hoy son 11, curados).
-- **Reintentos y puntos de reanudación del build.** Hoy un build interrumpido se descarta entero.
-- **Recetas aprobadas para software fuera de apt.** Los snaps y los repositorios oficiales ya están
-  soportados (ver README). Queda **GitHub**: un asset de release es un binario opaco corriendo como
-  root, sin `dpkg` que lo respalde. Exigiría fijar tag, nombre de asset y sha256 por entrada, y
-  prohibir `latest` (es un puntero mutable). Falta decidir cómo se revisa.
+**Falta:**
 
-### Mantenimiento de pines (no es deuda, es disciplina)
-
-- **Snaps.** `docker=3618` y `certbot=5911` (stable, amd64) están fijados y el build comprueba que la
-  revisión instalada coincide. Subir una revisión es un cambio revisado: verificar que siga en la
-  tienda y que el build la acepte en 22.04 y en 24.04 antes de mover el número.
-- **Plugin de Packer.** `toolchain.lock` fija el sha256 del binario instalado y
-  `scripts/check-toolchain.sh` lo compara. Actualizar el plugin es cambiar versión y hash en el mismo
-  commit.
-
-## 3. Deuda del arnés de evaluación
-
-- 25 casos detectan regresiones groseras; no permiten afirmar precisión con confianza. Ampliar con
-  casos reales antes de comparar modelos.
-- El job de CI que repite una grabación con `--replay` está listo, pero no hay grabación comprometida
-  todavía: depende de la credencial de 1.1.
+- Un `clouds.yaml` y un proyecto OpenStack de pruebas.
+- La prueba de arranque real de una instancia creada desde la imagen subida (el criterio que el plan
+  pone para F7).
+- Decidir si el nombre por defecto (`ubuntu-24.04-<hash>`) es el que se quiere en Glance.
 
 ---
 
-## 4. Reproducibilidad de bytes
+## P1 — Endurecimiento pendiente
+
+### H-01 · Un manifest puede mentir
+
+El checksum ata los bytes del artefacto, no las afirmaciones del manifest. Firmar el manifest queda
+para cuando alguien dependa de esa garantía.
+
+**Criterio de cierre.** `verify` rechaza un manifest cuya firma no valide contra una clave conocida.
+
+### H-02 · Mostrar las dependencias de un paquete añadido
+
+Permitir `nodejs` permite todo su árbol de dependencias, y Launchpad no lo entrega. Hoy solo se
+avisa; no se muestra el árbol completo. Haría falta consultar otra fuente antes de aprobar.
+
+**Criterio de cierre.** `gira-iso allow add` muestra el árbol de dependencias y advierte el impacto
+antes de pedir confirmación.
+
+### H-03 · Probar la traducción de nombres con el modelo real
+
+`src/gira_iso/nl/suggest.py` traduce un término del usuario al paquete de Ubuntu que le corresponde
+(`node` → `nodejs`). No se ha probado con un modelo real. Caso mínimo: pedir `nginx y node`.
+
+**Criterio de cierre.** El caso bilingüe se resuelve sin intervención y queda registrado en una
+grabación.
+
+### H-04 · Permitir ampliar servicios habilitables
+
+Hoy son 11 servicios curados. Si el uso real necesita más, conviene un mecanismo equivalente al de
+las adiciones de paquetes, con revisión y auditoría.
+
+### H-05 · Reintentos y puntos de reanudación del build
+
+Un build interrumpido se descarta entero. Haría falta reanudar por paso (descarga, render, Packer,
+provisión) sin reconstruir lo ya hecho.
+
+**Criterio de cierre.** Un build interrumpido en la fase de provisión se reanuda sin volver a
+descargar la base ni repetir el render.
+
+### H-06 · Recetas aprobadas para software fuera de `apt`
+
+Los snaps y los repositorios oficiales ya están soportados. Queda **GitHub**: un asset de release es
+un binario opaco corriendo como root, sin `dpkg` que lo respalde.
+
+**Falta:** exigir tag, nombre de asset y `sha256` por entrada, prohibir `latest` (es un puntero
+mutable) y decidir cómo se revisa. No se implementa hasta cerrar esa decisión.
+
+---
+
+## P2 — Deuda del arnés de evaluación
+
+- **Cobertura insuficiente.** Los 25 casos detectan regresiones groseras; no permiten afirmar
+  precisión con confianza. Ampliar con casos reales antes de comparar modelos.
+- **Sin grabación de línea base.** No hay una grabación comprometida en `eval/baselines/` porque
+  depende de la credencial de B-01. La reproducción local con `--replay` ya funciona.
+- **Tiempo de ejecución.** Medir la latencia real por caso antes de fijar expectativas de calidad.
+
+---
+
+## P3 — Reproducibilidad de bytes
 
 Decidida fuera de alcance, no resuelta. Los manifests coinciden entre builds; el `.qcow2` no.
+
 Haría falta `SOURCE_DATE_EPOCH`, ext4 determinista y `mkfs` reproducible. Solo importa si alguien
 necesita comparar imágenes por hash.
 
 ---
 
-## 5. Menor
+## P4 — Menor y mantenimiento
 
-- `scripts/boot-vanilla.sh` duplica parte de `verify/vm.py`. Si vuelve a divergir, borrarlo y darle
-  un modo `--no-goss` a `gira-iso verify`.
-- goss se sube al guest en cada verificación (~16 MB por el canal del agente, en trozos). Funciona,
-  pero sigue siendo el objeto más grande que cruza el canal.
+- `scripts/boot-vanilla.sh` duplica parte de `src/gira_iso/verify/vm.py`. Si vuelve a divergir,
+  borrarlo y darle un modo `--no-goss` a `gira-iso verify`.
+- `goss` se sube al guest en cada verificación (~16 MB por el canal del agente, en trozos).
+  Funciona, pero sigue siendo el objeto más grande que cruza el canal.
+- Revisar que la documentación siga reflejando el código tras cada fase cerrada.
+
+### Mantenimiento de pines
+
+No es deuda, es disciplina. Cada cambio se hace con su verificación en el mismo commit.
+
+| Pin | Valor actual | Procedimiento |
+|---|---|---|
+| Snap `docker` | revisión `3618`, canal `stable`, `classic` | Verificar que siga en la tienda y que el build la acepte en 22.04 y 24.04 |
+| Snap `certbot` | revisión `5911`, canal `stable` | Igual que el anterior |
+| Plugin de Packer | versión y `sha256` en `toolchain.lock` | Cambiar versión y hash en el mismo commit; `scripts/check-toolchain.sh` lo comprueba |
+| Imágenes base | `sha256` en la política | Actualizar solo con revisión explícita |
+
+---
+
+## Decisiones de proyecto
+
+Estas decisiones están cerradas y no se reabren sin una petición explícita.
+
+- **Sin CI/CD.** El repositorio no usa GitHub Actions ni ningún servicio externo de integración.
+  Lint, pruebas y validación se ejecutan en local. No se añaden workflows.
+- **Idioma.** El código, los identificadores y los comentarios están en inglés; la documentación y
+  el backlog, en español.
+- **Sin emojis en la documentación.** La presentación es técnica y legible sin decoración.
+- **El modelo nunca ejecuta nada.** Solo produce una especificación validada por esquema y política.
 
 ---
 
@@ -115,6 +203,6 @@ necesita comparar imágenes por hash.
 - **El plugin `qemu` 1.1.7 no expone `cpu_type`:** `-cpu host` va por `qemuargs`.
 - **`virtserialport` sin `virtio-serial-pci`** hace que QEMU se niegue a arrancar.
 - **La cloud image 24.04 no trae `qemu-guest-agent`.** Está en `mandatory_packages`.
-- **goss reporta `test-count`, no `tested-count`.**
+- **`goss` reporta `test-count`, no `tested-count`.**
 - **`$` en una regex acepta un salto de línea final; `\Z` no.** Los valores de un repositorio se
   validan con `\Z`: un `url` con salto de línea podría cerrar la línea del script root.

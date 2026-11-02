@@ -184,12 +184,15 @@ Reglas del orquestador:
   inesperado es una `GiraError` y se **propaga**: el front end sabe mostrarla (el CLI con su código de
   salida, el menú con un panel).
 - `Ctrl+C` también se propaga; después de él no se verifica ni se exporta.
-- La base la elige la persona (`request.base`); lo que el modelo escriba en `base` se reemplaza.
+- La base la elige la persona cuando el front end la fija (`request.base`); en ese caso, lo que el
+  modelo escriba en `base` se reemplaza. El CLI no fija base: el modelo la propone y el valor por
+  defecto es 24.04.
 - El preflight corre **antes** de tocar el modelo: una máquina que no puede construir no gasta tokens.
 
 ### Ampliar la lista permitida (paso 1b)
 
-La lista de 42 paquetes es la puerta de seguridad, así que ampliarla no puede quedar en manos del mismo
+La lista de 48 paquetes (42 del archivo de Ubuntu y 6 que llegan por repositorio de tercero) es la
+puerta de seguridad, así que ampliarla no puede quedar en manos del mismo
 modelo que lee el texto de la persona (una inyección de instrucciones lo convertiría en su propio
 aprobador). Por eso **tres piezas distintas** intervienen y ninguna decide sola:
 
@@ -468,6 +471,14 @@ Además aparecieron dos hallazgos nuevos, ya corregidos:
 - **La medición del intérprete sigue pendiente (F5).** El endpoint responde, pero la credencial de este
   entorno es rechazada por `/v1/chat/completions` con `401 invalid_api_key`; `/v1/models` es público, así
   que no prueba nada. Sin una clave válida no hay métricas que comparar.
+- **La subida a OpenStack no se ha probado contra una nube real (F7).** Está implementada y testeada
+  contra una conexión falsa; falta un `clouds.yaml`, un proyecto de pruebas y el arranque de una
+  instancia creada desde la imagen subida. Ver [`openstack.md`](openstack.md).
+- **Un manifest puede mentir.** El checksum ata los bytes del artefacto, no las afirmaciones del
+  manifest. Firmarlo queda para cuando alguien dependa de esa garantía.
+- **Reproducibilidad de bytes.** Dos builds de la misma spec producen manifests idénticos, pero el
+  `.qcow2` difiere (fechas de instalación y metadatos de ext4). La reproducibilidad prometida es de
+  comportamiento, no bit a bit.
 - **`multiverse` y `restricted` quedan fuera** a propósito: software no libre o sin soporte.
 - **El CLI no exporta a una carpeta** al crear (existe `download`); es una diferencia de presentación, no de
   control.

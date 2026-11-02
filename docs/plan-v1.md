@@ -4,6 +4,10 @@ Estado: revisión del plan v0. Objetivo del documento: ordenar el trabajo en fas
 hitos verificables, corrigiendo los huecos de seguridad y los acoplamientos que el v0
 dejaba implícitos.
 
+> **Nota posterior (2026-11-01).** El proyecto decidió no usar CI/CD. Los workflows de
+> `.github/workflows/` se eliminaron y las comprobaciones —lint, pruebas y re-puntuación de
+> grabaciones— se ejecutan en local. Las menciones a CI en este documento son históricas.
+
 ---
 
 ## 0. Qué cambia respecto al v0 (y por qué)
@@ -39,10 +43,13 @@ dejaba implícitos.
 Resueltas antes de la fase 1. No se reabren sin una razón nueva y documentada en `## Log`.
 
 **D1 — `ssh` y `qemu-guest-agent` no se pueden deshabilitar en v0.** *(cerrada)*
-La política rechaza cualquier spec que los deshabilite. El verificador necesita un canal de
-entrada garantizado. La consola serie se usa para diagnóstico de arranque, no como canal de pruebas.
-Marshal por guest-agent vía virtio-serial queda como endurecimiento opcional posterior, no bloquea
-el MVP.
+La política rechaza cualquier spec que los deshabilite. `ssh` sigue siendo obligatorio por
+usabilidad de la imagen (una imagen cloud sin acceso no sirve) y `qemu-guest-agent` porque el
+verificador lo necesita.
+*Actualización 2026-11-01:* el canal de verificación ya es el agente QEMU sobre virtio-serial, no
+SSH. El seed de verificación no declara usuarios y los comandos corren como root dentro del
+invitado, así que la verificación ya no depende de `ssh`; el requisito se mantiene por la imagen,
+no por el verificador.
 
 **D2 — `files` solo escribe bajo prefijos permitidos.** *(cerrada)*
 `policy/allowlist.yaml` declara prefijos permitidos (`/etc/nginx/`, `/etc/motd`, …) y la política
@@ -245,30 +252,39 @@ nube y queda en backlog.
 
 ---
 
-## 4. Estructura del repositorio (revisada)
+## 4. Estructura del repositorio (estado actual)
 
 ```
-gira-iso/                    # project and repository are `gira-iso` (see D6)
+gira-iso/
 ├── src/gira_iso/
-│   ├── cli.py               # Typer: list, create, download (+ advanced commands)
-│   ├── spec/                # Pydantic models + canonical form
+│   ├── cli/                 # Typer: menú, create, list/show/download/delete/clean, allow y avanzados
+│   ├── tui/                 # menú interactivo (app, create, images, bases, views)
+│   ├── workflow/            # run_create, puerto Io, eventos y preflight
+│   ├── nl/                  # cliente compatible con OpenAI, prompt, sesión, explain y suggest
+│   ├── spec/                # modelos Pydantic + forma canónica (spec_hash)
 │   ├── policy/              # allowlist.yaml + evaluate() pura
-│   ├── builder/             # spec -> HCL/cloud-init, runner de Packer, manifest
-│   ├── verify/              # overlay + seed + qemu + goss generado
-│   ├── nl/                  # cliente LLM + prompts
-│   └── eval/                # dataset dorado + métricas
+│   ├── builder/             # spec -> HCL/cloud-init, Packer, manifest, base, catálogo y export
+│   ├── verify/              # arranque QEMU, canal del agente y goss generado
+│   ├── push/                # subida a OpenStack Glance
+│   ├── eval/                # dataset dorado, runner y puntuación
 │   └── templates/           # plantillas Jinja dentro del paquete
 │       ├── packer/          # image.pkr.hcl.j2
-│       └── scripts/         # assert.sh.j2, cleanup.sh.j2
-├── scripts/                 # boot-vanilla.sh (verificación manual, previa a F4)
+│       └── scripts/         # assert.sh.j2, cleanup.sh.j2, finalize.sh.j2, repositories.sh.j2
+├── scripts/                 # boot-vanilla.sh y check-toolchain.sh
 ├── examples/                # specs de ejemplo que deben seguir siendo válidos
-├── docs/                    # este plan, notas por fase
-└── tests/                   # unitarias + adversariales de política
+├── docs/                    # alcance, arquitectura, flujo, OpenStack, laboratorio y este plan
+│   └── assets/              # logo del grupo
+├── odd/tasks/               # documentos de trabajo de las features entregadas
+├── tests/                   # unitarias, adversariales de política y de integración (marcadas)
+├── install.sh / install.ps1 # instalación en Linux/WSL2 y Windows
+├── toolchain.lock           # versiones y sha256 de Packer y goss
+├── backlog.md               # trabajo abierto por prioridad
+└── pyproject.toml / uv.lock # paquete y dependencias fijadas
 ```
 
 Cambios respecto al v0: `src/` layout (evita que `spec`, `policy` o `builder` colisionen como
 módulos de nivel superior al instalar el paquete), `scripts/` para las herramientas manuales de
-F0, `examples/` con un spec que la suite verifica, y `docs/`.
+F0, `examples/` con un spec que la suite verifica, y `docs/` para la documentación del proyecto.
 
 ---
 
@@ -278,7 +294,7 @@ F0, `examples/` con un spec que la suite verifica, y `docs/`.
 |---|---|---|
 | `files` como vía de escalada a root | Prefijos permitidos, sin `..`, sin symlink fuera, modo explícito | F1 |
 | Cadena de suministro de la base | Versión → (URL, sha256) en política; URL arbitraria rechazada | F1 |
-| El spec no deshabilita la verificación | `ssh` y `qemu-guest-agent` obligatorios en v0 | F1 |
+| El spec no deshabilita la verificación | `qemu-guest-agent` obligatorio y canal de verificación por virtio-serial, sin depender de `ssh` | F1 / F4 |
 | Inyección de instrucciones | Texto delimitado como dato + política independiente del modelo | F5 |
 | El LLM alucina paquetes | Lista blanca | F1 / F5 |
 | Imagen con estado heredado | Pasos de limpieza obligatorios + arranque limpio con cloud-init | F2 / F4 |

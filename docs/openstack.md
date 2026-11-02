@@ -37,6 +37,9 @@ Con eso, `gira-iso push ... --cloud mycloud` no necesita nada más. También val
 `OS_*` (`OS_AUTH_URL`, `OS_USERNAME`, `OS_PASSWORD`, `OS_PROJECT_NAME`…), que es lo que usa el CLI de
 OpenStack.
 
+`clouds.yaml`, `*.kubeconfig` y los archivos de credenciales están en `.gitignore`: nunca deben
+versionarse. Verifica con `git check-ignore clouds.yaml` antes de crear uno dentro del repositorio.
+
 ## Subir
 
 ```bash

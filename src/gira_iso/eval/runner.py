@@ -1,7 +1,7 @@
 """Run the dataset, score it, and aggregate the metrics.
 
-A run can be recorded and replayed. That is what lets CI re-score a previous run
-without calling a model, and what keeps the numbers auditable after the fact.
+A run can be recorded and replayed. Replaying re-scores a previous run without
+calling a model, which keeps the numbers auditable after the fact.
 """
 
 from __future__ import annotations
